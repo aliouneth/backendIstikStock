@@ -9,6 +9,8 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        $this->call(SubscriptionSeeder::class);
+
         $generator = app(SyntheticHistoricalDataGenerator::class);
 
         $this->command?->info('Seeding historical penny-stock dataset (1000 top performers + macro)...');

@@ -7,6 +7,8 @@ use App\Services\Data\MacroDataService;
 use App\Services\Data\MarketDataRefreshService;
 use App\Services\Pipeline\DailyAnalysisService;
 use App\Services\Pipeline\RecommendationReport;
+use App\Support\Entitlements;
+use App\Support\Features;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -43,7 +45,7 @@ class AnalysisController extends Controller
     }
 
     /** GET /api/recommendations/today */
-    public function today(): JsonResponse
+    public function today(Request $request): JsonResponse
     {
         $data = $this->report->today();
         if ($data === null) {
@@ -53,7 +55,10 @@ class AnalysisController extends Controller
             ], 404);
         }
 
-        return response()->json(['success' => true] + $data);
+        return response()->json([
+            'success' => true,
+            ...$this->applyEntitlements($data, $request),
+        ]);
     }
 
     /** GET /api/recommendations/history?days=30 */
@@ -61,12 +66,48 @@ class AnalysisController extends Controller
     {
         $days = min(365, max(1, (int) $request->input('days', 30)));
 
-        return response()->json([
-            'success' => true,
+        $payload = $this->applyEntitlements([
             'days' => $days,
             'history' => $this->report->history($days),
             'evaluation' => $this->report->evaluate(),
-        ]);
+        ], $request);
+
+        return response()->json(['success' => true, ...$payload]);
+    }
+
+    /**
+     * Hide premium reasoning columns when the plan does not include them.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function applyEntitlements(array $data, Request $request): array
+    {
+        if (Entitlements::allows($request->user(), Features::FULL_RATIONALE)) {
+            return $data;
+        }
+
+        $redact = function (array $item): array {
+            $item['rationale'] = 'Upgrade your plan to see the full model rationale.';
+            $item['key_features'] = [];
+            $item['rationale_locked'] = true;
+
+            return $item;
+        };
+
+        if (isset($data['items']) && is_array($data['items'])) {
+            $data['items'] = array_map($redact, $data['items']);
+        }
+
+        if (isset($data['history']) && is_array($data['history'])) {
+            $data['history'] = array_map(function (array $day) use ($redact): array {
+                $day['items'] = array_map($redact, $day['items'] ?? []);
+
+                return $day;
+            }, $data['history']);
+        }
+
+        return $data;
     }
 
     /** GET /api/model/status */

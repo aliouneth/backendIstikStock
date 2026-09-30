@@ -4,6 +4,7 @@ namespace App\Services\Ml;
 
 use App\Models\Stock;
 use App\Services\Data\UsPennyUniverseService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -31,14 +32,213 @@ class ScoringService
      */
     public function topPicks(int $topN, ?string $asOf = null): array
     {
+        $date = $this->resolveDate($asOf);
+        $universe = $this->scoreUniverse($date);
         $model = $this->repo->loadOrFail();
 
+        $scored = $universe['scored'];
+        $top = array_slice($scored, 0, $topN);
+
+        // Resolve real sector/industry for picks not enriched yet (one
+        // keyless Nasdaq request per ticker, cached on the stocks row).
+        $toEnrich = [];
+        foreach ($top as $row) {
+            $sector = $row['stock']['sector'];
+            if ($sector === null || $sector === '' || $sector === 'Unclassified') {
+                $toEnrich[] = $row['stock']['ticker'];
+            }
+        }
+        if ($toEnrich !== []) {
+            $this->universe->enrichSectors($toEnrich);
+            $freshSectors = Stock::whereIn('ticker', $toEnrich)->pluck('sector', 'ticker');
+            foreach ($top as &$row) {
+                $fresh = $freshSectors[$row['stock']['ticker']] ?? null;
+                if ($fresh !== null && $fresh !== '') {
+                    $row['stock']['sector'] = $fresh;
+                }
+            }
+            unset($row);
+        }
+
+        $items = [];
+        foreach ($top as $rank => $row) {
+            $items[] = $this->toItem($model, $row, $rank + 1);
+        }
+
+        return [
+            'date' => $date,
+            'universe' => $universe['universe'],
+            'scored' => $universe['scored_count'],
+            'skipped' => $universe['skipped'],
+            'model_version' => $model->version(),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Score one symbol against the model, using the same universe-relative
+     * normalisation as topPicks() so a single stock's 0-100 score and rank are
+     * directly comparable to the "Today's picks" list.
+     *
+     * @return array<string, mixed>
+     */
+    public function evaluateSymbol(string $ticker, ?string $asOf = null): array
+    {
+        $date = $this->resolveDate($asOf);
+        $universe = $this->scoreUniverse($date);
+        $model = $this->repo->loadOrFail();
+
+        $stock = Stock::query()->where('ticker', $ticker)->first();
+        if (! $stock instanceof Stock) {
+            throw new \RuntimeException("Unknown ticker [{$ticker}].");
+        }
+
+        $rank = null;
+        $row = null;
+        foreach ($universe['scored'] as $index => $candidate) {
+            if ((int) $candidate['stock']['id'] === (int) $stock->id) {
+                $rank = $index + 1;
+                $row = $candidate;
+
+                break;
+            }
+        }
+
+        $base = [
+            'date' => $date,
+            'model_version' => $model->version(),
+            'universe' => $universe['universe'],
+            'scored' => $universe['scored_count'],
+            'skipped' => $universe['skipped'],
+            'ticker' => $stock->ticker,
+            'name' => $stock->name,
+            'sector' => $stock->sector ?: 'Unclassified',
+            'exchange' => $stock->exchange,
+            'market_cap' => $stock->market_cap,
+        ];
+
+        if ($row === null) {
+            // The symbol exists but did not clear the penny-stock filters, so
+            // the model was never run on it. Say so rather than inventing a score.
+            return $base + [
+                'eligible' => false,
+                'reason' => $this->ineligibleReason($stock, $date),
+            ];
+        }
+
+        $count = $universe['scored_count'];
+
+        return $base + [
+            'eligible' => true,
+            'rank' => $rank,
+            'percentile' => round(100 * (1 - (($rank - 1) / max(1, $count))), 2),
+            'peers' => $count,
+            'item' => $this->toItem($model, $row, $rank),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function toItem(RegressorInterface $model, array $row, int $rank): array
+    {
+        $contributions = $model->explainRow($row['features']);
+        $sector = $row['stock']['sector'] ?: 'Unclassified';
+
+        return [
+            'rank' => $rank,
+            'stock_id' => $row['stock']['id'],
+            'ticker' => $row['stock']['ticker'],
+            'name' => $row['stock']['name'],
+            'sector' => $sector,
+            'price' => round($row['price'], 4),
+            'avg_volume' => (int) $row['avg_volume'],
+            'score' => round($row['score'], 2),
+            'raw_score' => round($row['raw'], 6),
+            'rationale' => RationaleBuilder::build($row['features'], $contributions, [
+                'sector' => $sector,
+                'avg_volume' => $row['avg_volume'],
+            ]),
+            'key_features' => $this->keyFeatures($row['features'], $contributions),
+            'features' => $row['features'],
+        ];
+    }
+
+    private function ineligibleReason(object $stock, string $date): string
+    {
+        $bars = DB::table('stock_prices')
+            ->where('stock_id', $stock->id)
+            ->orderByDesc('trade_date')
+            ->limit(1)
+            ->get(['trade_date', 'close', 'volume']);
+
+        if ($bars->isEmpty()) {
+            return 'No price history in the database.';
+        }
+
+        $last = $bars->first();
+
+        if ($last->trade_date !== $date) {
+            return "Stale data: last bar is {$last->trade_date} but the universe is scored as of {$date}.";
+        }
+
+        $lookback = (int) config('listikhar.model.lookback_days');
+        $cutoff = date('Y-m-d', strtotime($date.' -'.($lookback + 5).' days'));
+        $days = DB::table('stock_prices')
+            ->where('stock_id', $stock->id)
+            ->where('trade_date', '>=', $cutoff)
+            ->where('trade_date', '<=', $date)
+            ->count();
+
+        if ($days < (int) config('listikhar.min_history_days')) {
+            return "Only {$days} trading days of history; the model needs at least ".config('listikhar.min_history_days').'.';
+        }
+
+        $price = (float) $last->close;
+        $min = (float) config('listikhar.penny_min_price');
+        $max = (float) config('listikhar.penny_max_price');
+
+        if ($price < $min || $price > $max) {
+            return sprintf('Price $%.4f is outside the $%.2f-$%.2f penny-stock band.', $price, $min, $max);
+        }
+
+        return 'Average volume is below the liquidity floor of '.config('listikhar.min_avg_volume').' shares.';
+    }
+
+    private function resolveDate(?string $asOf): string
+    {
         $date = $asOf ?? FeatureEngineer::dateKey(
             DB::table('stock_prices')->max('trade_date')
         );
+
         if (! $date) {
             throw new \RuntimeException('No price data available.');
         }
+
+        return $date;
+    }
+
+    /**
+     * Score every candidate once and keep the result warm, so a single-stock
+     * lookup does not have to re-score the whole universe on every request.
+     *
+     * @return array{scored: list<array<string, mixed>>, universe: int, scored_count: int, skipped: int}
+     */
+    private function scoreUniverse(string $date): array
+    {
+        $cacheKey = "score:{$date}:".$this->repo->loadOrFail()->version();
+
+        return Cache::remember($cacheKey, (int) config('listikhar.score_cache_seconds', 900), function () use ($date) {
+            return $this->buildUniverse($date);
+        });
+    }
+
+    /**
+     * @return array{scored: list<array<string, mixed>>, universe: int, scored_count: int, skipped: int}
+     */
+    private function buildUniverse(string $date): array
+    {
+        $model = $this->repo->loadOrFail();
 
         $lookback = (int) config('listikhar.model.lookback_days');
         $cutoff = date('Y-m-d', strtotime($date.' -'.($lookback + 5).' days'));
@@ -80,7 +280,7 @@ class ScoringService
             }
 
             $scored[] = [
-                'stock' => $stock,
+                'stock' => (array) $stock,
                 'price' => $price,
                 'avg_volume' => $avgVol,
                 'features' => $features,
@@ -103,59 +303,12 @@ class ScoringService
         unset($row);
 
         usort($scored, fn ($a, $b) => $b['raw'] <=> $a['raw']);
-        $top = array_slice($scored, 0, $topN);
-
-        // Resolve real sector/industry for picks not enriched yet (one
-        // keyless Nasdaq request per ticker, cached on the stocks row).
-        $toEnrich = [];
-        foreach ($top as $row) {
-            $sector = $row['stock']->sector;
-            if ($sector === null || $sector === '' || $sector === 'Unclassified') {
-                $toEnrich[] = $row['stock']->ticker;
-            }
-        }
-        if ($toEnrich !== []) {
-            $this->universe->enrichSectors($toEnrich);
-            $freshSectors = Stock::whereIn('ticker', $toEnrich)->pluck('sector', 'ticker');
-            foreach ($top as &$row) {
-                $fresh = $freshSectors[$row['stock']->ticker] ?? null;
-                if ($fresh !== null && $fresh !== '') {
-                    $row['stock']->sector = $fresh;
-                }
-            }
-            unset($row);
-        }
-
-        $items = [];
-        foreach ($top as $rank => $row) {
-            $contributions = $model->explainRow($row['features']);
-            $sector = $row['stock']->sector ?: 'Unclassified';
-            $items[] = [
-                'rank' => $rank + 1,
-                'stock_id' => $row['stock']->id,
-                'ticker' => $row['stock']->ticker,
-                'name' => $row['stock']->name,
-                'sector' => $sector,
-                'price' => round($row['price'], 4),
-                'avg_volume' => (int) $row['avg_volume'],
-                'score' => round($row['score'], 2),
-                'raw_score' => round($row['raw'], 6),
-                'rationale' => RationaleBuilder::build($row['features'], $contributions, [
-                    'sector' => $sector,
-                    'avg_volume' => $row['avg_volume'],
-                ]),
-                'key_features' => $this->keyFeatures($row['features'], $contributions),
-                'features' => $row['features'],
-            ];
-        }
 
         return [
-            'date' => $date,
+            'scored' => $scored,
             'universe' => $universe,
-            'scored' => count($scored),
+            'scored_count' => count($scored),
             'skipped' => $skipped,
-            'model_version' => $model->version(),
-            'items' => $items,
         ];
     }
 

@@ -40,6 +40,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Inference cache
+    |--------------------------------------------------------------------------
+    | Scoring the whole penny-stock universe takes a few seconds, so the
+    | ranked result is reused for this long. It is keyed by trading date and
+    | model version, so retraining or new data invalidates it automatically.
+    */
+
+    'score_cache_seconds' => (int) env('LISTIKHAR_SCORE_CACHE_SECONDS', 900),
+
+    /*
+    |--------------------------------------------------------------------------
     | Data sources
     |--------------------------------------------------------------------------
     */

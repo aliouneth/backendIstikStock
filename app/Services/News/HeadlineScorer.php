@@ -15,15 +15,26 @@ class HeadlineScorer
      * @var array<string, string>
      */
     private const POSITIVE = [
-        'FDA/clinical' => '/\bFDA\b|approv(ed|al)?\b|clearance|breakthrough therapy|fast track|\bBLA\b|\bNDA\b/i',
-        'clinical data' => '/phase\s+[123IVX]+(\b|,)|topline|primary endpoint|clinical (data|trial|results)/i',
-        'M&A/deal' => '/\b(acquir\w*|merger|buyout|takeover|tender offer|definitive agreement|partnership|joint venture)\b/i',
-        'contract/orders' => '/\b(contract|purchase order|orders?|award(ed)?|multi-year|deployment)\b/i',
-        'earnings/growth' => '/(earnings|revenue)\s+(beat|surge|jump|growth|jumped)|guidance rais|record (revenue|sales|orderbook)|profitab/i',
+        'FDA/clinical' => '/\bFDA\b|approv(ed|al)?\b|clearance|breakthrough therapy|fast track|\bBLA\b|\bNDA\b|orphan drug|fast track designation/i',
+        'clinical data' => '/phase\s+[123IVX]+(\b|,)|topline|primary endpoint|clinical (data|trial|results)|interim (data|analysis|results)/i',
+        'M&A/deal' => '/\b(acquir\w*|merger|buyout|takeover|tender offer|definitive agreement|partnership|joint venture|strategic alliance)\b/i',
+        'contract/orders' => '/\b(contract|purchase order|orders?|award(ed)?|multi-year|deployment|wins? contract|lands? contract|secures? contract|contract win|new contract|government contract|defense contract|supply agreement|framework agreement|memorandum of understanding|letter of intent)\b/i',
+        'earnings/growth' => '/(earnings|revenue)\s+(beat|surge|jump|growth|jumped)|guidance rais|record (revenue|sales|orderbook)|profitab|beat(s|ing)? (estimates|expectations|consensus)|EPS beat|revenue beat|earnings surprise/i',
         'uplisting' => '/\buplist\w*|nasdaq (compliance|approval|listing)|nyse (listing|compliance)|inclusion into\b/i',
-        'funding' => '/\b(financing|funding|grant|substantial equity|convertible note|buyback|insider (buy|purchas))\b/i',
-        'momentum' => '/\b(soar\w*|surge\w*|rall\w*|jump\w*|spike[ds]?|breakout|short squeeze)\b/i',
-        'expansion' => '/\b(expansion|milestone|patent|lucrative|pipeline|blockchain|weight-loss|obesity)\b/i',
+        'funding' => '/\b(financing|funding|grant|substantial equity|convertible note|buyback|insider (buy|purchas)|share repurchase|repurchase program|accelerated share repurchase|stock buyback|buy back|repurchase authorization|increased buyback|share buyback|open market purchase|Form 4)\b/i',
+        'momentum' => '/\b(soar\w*|surge\w*|rall\w*|jump\w*|spike[ds]?|breakout|short squeeze|borrow rate|days to cover|high short interest)\b/i',
+        'expansion' => '/\b(expansion|milestone|patent|lucrative|pipeline|blockchain|weight-loss|obesity|commercial (launch|ization)|market launch|product launch|revenue generating)\b/i',
+        'analyst upgrades' => '/\b(upgrade[ds]?|price target (rais|increas|lift|boost)|initiates? at (buy|overweight|outperform)|overweight|outperform|buy rating|accumulate|top pick|conviction buy)\b/i',
+        'insider buying' => '/\b(insider (buy|purchas)|CEO (buy|purchas)|director (buy|purchas)|CFO (buy|purchas)|open market purchase|Form 4|beneficial owner)\b/i',
+        'short squeeze' => '/\b(short (interest|squeeze)|borrow rate|days to cover|high short interest|short covering|gamma squeeze)\b/i',
+        'product launch' => '/\b(launch\w*|unveil\w*|introduc\w+|new product|FDA submission|regulatory submission|marketing authorization|CE mark)\b/i',
+        'partnership' => '/\b(partnership|collaboration|strategic alliance|teams? up with|teaming with|co-development|co-promotion)\b/i',
+        'dividend' => '/\b(dividend|special cash|shareholder return|capital return)\b/i',
+        'index inclusion' => '/\b(added to|index inclusion|Russell|S&P 500|S&P 600|index rebalance|index addition)\b/i',
+        'guidance' => '/\b(rais\w+ (guidance|outlook|forecast)|full[- ]year guidance|upbeat outlook|strong outlook|raises? (revenue|EPS) (guidance|outlook|forecast))\b/i',
+        'debt relief' => '/\b(pays? off (debt|loan)|debt[- ]free|credit facility|loan agreement|debt financing|refinanc\w+|debt restructuring|notes? offering)\b/i',
+        'strategic interest' => '/\b(acquisition interest|strategic alternatives|exploring (sale|options)|takeover interest|buyout interest|interested parties|process to explore)\b/i',
+        'activist investor' => '/\b(activist (investor|stake)|board seats?|proxy fight|settlement agreement|corporate governance)\b/i',
     ];
 
     /**
@@ -37,6 +48,11 @@ class HeadlineScorer
         'legal risk' => '/\b(investigation|probe|lawsuit|class action|fraud|sec (charges|investigat\w*)|doj)\b/i',
         'trading halt' => '/\b(halt(ed)?|trading pause|reverse split|rescind\w*)\b/i',
         'weak price action' => '/\b(sink\w*|plunge\w*|tumbl\w*|slump\w*|dives?|declin\w*)\b(?=.*\b(stock|shares?|price)\b)|(stock|shares?)\b.*\b(sink\w*|plunge\w*|tumbl\w*|slump\w*|dives?|drops?|falls?)\b/i',
+        'layoffs' => '/\b(layoff\w*|workforce reduction|restructuring|severance|furlough\w*|headcount reduction)\b/i',
+        'accounting issues' => '/\b(restatement|material weakness|auditor (resign|dismiss)|accounting (irregular|issue|error)|non-reliance)\b/i',
+        'executive departure' => '/\b(CEO (resign|depart|step)|CFO (resign|depart|step)|executive (departure|resign)|founder (resign|depart|step))\b/i',
+        'product recall' => '/\b(recall\w*|safety (concern|issue|warning)|product (defect|liability))\b/i',
+        'clinical failure' => '/\b(trial (fail|miss)|missed endpoint|safety signal|clinical hold|FDA (reject|refuse|complete response))\b/i',
     ];
 
     /**
