@@ -66,6 +66,14 @@ class User extends Authenticatable
         return $this->hasMany(SubscriptionCheckout::class);
     }
 
+    /**
+     * @return HasMany<Watchlist, $this>
+     */
+    public function watchlists(): HasMany
+    {
+        return $this->hasMany(Watchlist::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === self::ROLE_ADMIN;

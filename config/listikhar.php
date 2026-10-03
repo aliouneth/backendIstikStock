@@ -103,7 +103,7 @@ return [
         // Target-price horizon (trading days) for "jump soon".
         'horizon_days' => (int) env('LISTIKHAR_NEWS_HORIZON_DAYS', 3),
         // Headlines kept per symbol.
-        'max_headlines' => 6,
+        'max_headlines' => 8,
     ],
 
     'benchmark_symbol' => '^RUT',

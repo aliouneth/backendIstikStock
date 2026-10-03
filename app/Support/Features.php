@@ -20,6 +20,8 @@ class Features
 
     public const STOCK_LOOKUP = 'stock_lookup';
 
+    public const WATCHLISTS = 'watchlists';
+
     /**
      * @return array<string, string>
      */
@@ -34,6 +36,7 @@ class Features
             self::MODEL_METRICS => 'Model metrics panel',
             self::FULL_RATIONALE => 'Full rationale & key drivers',
             self::STOCK_LOOKUP => 'Single stock model lookup',
+            self::WATCHLISTS => 'Stock watchlists',
         ];
     }
 

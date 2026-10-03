@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\NewsScanController;
 use App\Http\Controllers\Api\StockLookupController;
+use App\Http\Controllers\Api\WatchlistController;
 use App\Support\Features;
 use Illuminate\Support\Facades\Route;
 
@@ -19,7 +20,6 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth.optional')->group(function (): void {
     Route::get('/access', [AccessController::class, 'show']);
 });
-
 Route::prefix('auth')->group(function (): void {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
@@ -58,6 +58,19 @@ Route::middleware('auth.optional')->group(function (): void {
         ->middleware('feature:'.Features::STOCK_LOOKUP);
     Route::get('/stocks/{ticker}/evaluation', [StockLookupController::class, 'evaluate'])
         ->middleware('feature:'.Features::STOCK_LOOKUP);
+
+    // Premium watchlists: named lists of tracked stocks with per-item
+    // price history and model evaluation.
+    Route::middleware('feature:'.Features::WATCHLISTS)->group(function (): void {
+        Route::get('/watchlists', [WatchlistController::class, 'index']);
+        Route::post('/watchlists', [WatchlistController::class, 'store']);
+        Route::get('/watchlists/{watchlist}', [WatchlistController::class, 'show']);
+        Route::patch('/watchlists/{watchlist}', [WatchlistController::class, 'update']);
+        Route::delete('/watchlists/{watchlist}', [WatchlistController::class, 'destroy']);
+
+        Route::post('/watchlists/{watchlist}/items', [WatchlistController::class, 'storeItem']);
+        Route::delete('/watchlists/{watchlist}/items/{item}', [WatchlistController::class, 'destroyItem']);
+    });
 });
 
 /*

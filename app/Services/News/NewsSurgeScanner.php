@@ -40,10 +40,13 @@ class NewsSurgeScanner
         $scored = $this->scoring->topPicks((int) $cfg['candidates']);
         $candidates = $scored['items'];
 
-        // 2) Fresh news per candidate (batched fetch).
+        // 2) Fresh news per candidate (batched fetch). Company names are passed
+        //    along so Yahoo is searched by name: a bare "CAN" searches the word
+        //    "can" and returns unrelated headlines.
         $newsMap = $this->news->headlinesMany(
             array_column($candidates, 'ticker'),
             $lookback,
+            array_column($candidates, 'ticker', 'name'),
         );
 
         $withNews = [];

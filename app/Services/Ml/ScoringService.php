@@ -84,57 +84,91 @@ class ScoringService
      */
     public function evaluateSymbol(string $ticker, ?string $asOf = null): array
     {
+        $result = $this->evaluateSymbols([$ticker], $asOf);
+
+        return $result['evaluations'][strtoupper($ticker)] ?? throw new \RuntimeException("Unknown ticker [{$ticker}].");
+    }
+
+    /**
+     * Bulk-evaluate a set of symbols against a single scored universe.
+     *
+     * @param  list<string>  $tickers
+     * @return array{date: string, model_version: string, universe: int, scored: int, skipped: int, evaluations: array<string, array<string, mixed>>}
+     */
+    public function evaluateSymbols(array $tickers, ?string $asOf = null): array
+    {
         $date = $this->resolveDate($asOf);
         $universe = $this->scoreUniverse($date);
         $model = $this->repo->loadOrFail();
 
-        $stock = Stock::query()->where('ticker', $ticker)->first();
-        if (! $stock instanceof Stock) {
-            throw new \RuntimeException("Unknown ticker [{$ticker}].");
+        $map = [];
+        foreach (array_values($tickers) as $t) {
+            $map[strtoupper($t)] = null;
         }
 
-        $rank = null;
-        $row = null;
-        foreach ($universe['scored'] as $index => $candidate) {
-            if ((int) $candidate['stock']['id'] === (int) $stock->id) {
-                $rank = $index + 1;
-                $row = $candidate;
-
-                break;
-            }
+        $stockIds = [];
+        $stocksById = [];
+        foreach (Stock::query()->whereIn('ticker', array_keys($map))->get() as $stock) {
+            $stocksById[(int) $stock->id] = $stock;
+            $map[strtoupper($stock->ticker)] = $stock;
+            $stockIds[] = (int) $stock->id;
         }
 
-        $base = [
+        $baseCommon = [
             'date' => $date,
             'model_version' => $model->version(),
             'universe' => $universe['universe'],
             'scored' => $universe['scored_count'],
             'skipped' => $universe['skipped'],
-            'ticker' => $stock->ticker,
-            'name' => $stock->name,
-            'sector' => $stock->sector ?: 'Unclassified',
-            'exchange' => $stock->exchange,
-            'market_cap' => $stock->market_cap,
         ];
 
-        if ($row === null) {
-            // The symbol exists but did not clear the penny-stock filters, so
-            // the model was never run on it. Say so rather than inventing a score.
-            return $base + [
-                'eligible' => false,
-                'reason' => $this->ineligibleReason($stock, $date),
+        $evaluations = [];
+        $count = $universe['scored_count'];
+
+        foreach ($map as $tickerUpper => $stock) {
+            if (! $stock instanceof Stock) {
+                throw new \RuntimeException("Unknown ticker [{$tickerUpper}].");
+            }
+
+            $rank = null;
+            $row = null;
+            foreach ($universe['scored'] as $index => $candidate) {
+                $cid = (int) $candidate['stock']['id'];
+                if ($cid === (int) $stock->id) {
+                    $rank = $index + 1;
+                    $row = $candidate;
+
+                    break;
+                }
+            }
+
+            $base = $baseCommon + [
+                'ticker' => $stock->ticker,
+                'name' => $stock->name,
+                'sector' => $stock->sector ?: 'Unclassified',
+                'exchange' => $stock->exchange,
+                'market_cap' => $stock->market_cap,
+            ];
+
+            if ($row === null) {
+                $evaluations[$tickerUpper] = $base + [
+                    'eligible' => false,
+                    'reason' => $this->ineligibleReason($stock, $date),
+                ];
+
+                continue;
+            }
+
+            $evaluations[$tickerUpper] = $base + [
+                'eligible' => true,
+                'rank' => $rank,
+                'percentile' => round(100 * (1 - (($rank - 1) / max(1, $count))), 2),
+                'peers' => $count,
+                'item' => $this->toItem($model, $row, $rank),
             ];
         }
 
-        $count = $universe['scored_count'];
-
-        return $base + [
-            'eligible' => true,
-            'rank' => $rank,
-            'percentile' => round(100 * (1 - (($rank - 1) / max(1, $count))), 2),
-            'peers' => $count,
-            'item' => $this->toItem($model, $row, $rank),
-        ];
+        return $baseCommon + ['evaluations' => $evaluations];
     }
 
     /**
