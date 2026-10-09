@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AccessController;
+use App\Http\Controllers\Api\Admin\StatsController as AdminStatsController;
 use App\Http\Controllers\Api\Admin\SubscriptionController as AdminSubscriptionController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\AnalysisController;
@@ -95,6 +96,8 @@ Route::prefix('billing')->middleware('auth.token')->group(function (): void {
 |--------------------------------------------------------------------------
 */
 Route::prefix('admin')->middleware(['auth.token', 'admin'])->group(function (): void {
+    Route::get('/stats', [AdminStatsController::class, 'index']);
+
     Route::get('/users', [AdminUserController::class, 'index']);
     Route::post('/users', [AdminUserController::class, 'store']);
     Route::patch('/users/{user}', [AdminUserController::class, 'update']);

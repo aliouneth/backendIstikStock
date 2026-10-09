@@ -62,10 +62,9 @@ class AccessControlTest extends TestCase
             ->assertJsonPath('feature', Features::NEWS_SURGE);
     }
 
-    public function test_registration_issues_token_and_assigns_the_premium_plan(): void
+    public function test_registration_issues_token_and_assigns_default_plan(): void
     {
-        $this->plan(); // Free, the default plan.
-        $premium = $this->plan('Premium', [Features::NEWS_SURGE], isDefault: false);
+        $this->plan();
 
         $res = $this->postJson('/api/auth/register', [
             'name' => 'Dana',
@@ -76,8 +75,7 @@ class AccessControlTest extends TestCase
 
         $this->assertNotEmpty($res->json('token'));
         $this->assertSame('dana@example.com', $res->json('user.email'));
-        $this->assertSame($premium->id, $res->json('user.subscription_id'));
-        $this->assertSame('Premium', $res->json('user.subscription.name'));
+        $this->assertSame('Free', $res->json('user.subscription.name'));
 
         $this->withHeader('Authorization', 'Bearer '.$res->json('token'))
             ->getJson('/api/auth/me')

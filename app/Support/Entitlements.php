@@ -13,12 +13,6 @@ class Entitlements
     private const CACHE_TTL = 300;
 
     /**
-     * Plan automatically assigned to newly registered users. Referenced by slug
-     * rather than id because reseeding can change the numeric ids.
-     */
-    public const REGISTRATION_PLAN_SLUG = 'premium';
-
-    /**
      * Feature keys the given user is allowed to use. Guests resolve to the
      * default (Free) plan so the public app stays usable.
      *
@@ -80,20 +74,6 @@ class Entitlements
         return Subscription::query()
             ->where('is_active', true)
             ->find($id);
-    }
-
-    /**
-     * Plan new accounts are enrolled on. Falls back to the default plan if the
-     * configured one is missing, so registration never leaves a user planless.
-     */
-    public static function registrationSubscription(): ?Subscription
-    {
-        $plan = Subscription::query()
-            ->where('is_active', true)
-            ->where('slug', self::REGISTRATION_PLAN_SLUG)
-            ->first();
-
-        return $plan ?? self::defaultSubscription();
     }
 
     public static function flushCache(): void
