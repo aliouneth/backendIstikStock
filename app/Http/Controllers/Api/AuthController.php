@@ -32,7 +32,7 @@ class AuthController extends Controller
             'password' => $data['password'],
             'role' => User::ROLE_USER,
             'is_active' => true,
-            'subscription_id' => Entitlements::defaultSubscription()?->id,
+            'subscription_id' => Entitlements::registrationSubscription()?->id,
         ]);
 
         return $this->issue($user, 201, 'Account created.');
