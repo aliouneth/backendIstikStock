@@ -118,6 +118,10 @@ class CheckoutService
             'subscription_expires_at' => $checkout->auto_renew ? null : $endsAt,
         ])->save();
 
+        // Let the driver attach its own billing record (Stripe customer /
+        // subscription ids and the provider-side period end).
+        $this->gateway->sync($user, $checkout);
+
         Entitlements::flushCache();
     }
 

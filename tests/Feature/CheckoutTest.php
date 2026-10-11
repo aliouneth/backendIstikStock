@@ -258,6 +258,8 @@ class CheckoutTest extends TestCase
             {
                 return 'Card declined.';
             }
+
+            public function sync(User $user, SubscriptionCheckout $checkout): void {}
         });
 
         $checkoutId = $this->authed($user)->postJson('/api/billing/checkouts', [

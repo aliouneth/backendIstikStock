@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'description',
     'price',
     'annual_price',
+    'stripe_product_id',
     'billing_period',
     'features',
     'is_active',

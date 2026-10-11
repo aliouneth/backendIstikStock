@@ -20,6 +20,8 @@ use Illuminate\Support\Str;
     'subscription_id',
     'subscription_expires_at',
     'auto_renew',
+    'stripe_customer_id',
+    'stripe_subscription_id',
     'is_active',
     'last_login_at',
 ])]

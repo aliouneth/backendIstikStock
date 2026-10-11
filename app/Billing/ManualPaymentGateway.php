@@ -3,6 +3,7 @@
 namespace App\Billing;
 
 use App\Models\SubscriptionCheckout;
+use App\Models\User;
 use RuntimeException;
 
 /**
@@ -46,5 +47,10 @@ class ManualPaymentGateway implements PaymentGateway
     public function failureReason(SubscriptionCheckout $checkout): ?string
     {
         return 'Manual confirmation is disabled on this environment.';
+    }
+
+    public function sync(User $user, SubscriptionCheckout $checkout): void
+    {
+        // The manual driver has no external billing record to reconcile.
     }
 }

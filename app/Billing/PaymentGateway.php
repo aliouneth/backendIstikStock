@@ -3,6 +3,7 @@
 namespace App\Billing;
 
 use App\Models\SubscriptionCheckout;
+use App\Models\User;
 
 interface PaymentGateway
 {
@@ -36,4 +37,11 @@ interface PaymentGateway
      * Human readable reason a confirm() returned false.
      */
     public function failureReason(SubscriptionCheckout $checkout): ?string;
+
+    /**
+     * Called once the plan has been granted. Drivers that keep their own
+     * record of the customer/subscription (Stripe) persist those identifiers
+     * and any provider-side expiry here. Drivers without that concept no-op.
+     */
+    public function sync(User $user, SubscriptionCheckout $checkout): void;
 }

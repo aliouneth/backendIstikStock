@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\NewsScanController;
 use App\Http\Controllers\Api\StockLookupController;
+use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\WatchlistController;
 use App\Support\Features;
 use Illuminate\Support\Facades\Route;
@@ -89,6 +90,14 @@ Route::prefix('billing')->middleware('auth.token')->group(function (): void {
     Route::post('/checkouts/{checkout}/confirm', [CheckoutController::class, 'confirm']);
     Route::post('/checkouts/{checkout}/cancel', [CheckoutController::class, 'cancel']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Stripe webhooks
+|--------------------------------------------------------------------------
+| Unauthenticated by design: authenticated instead by the signed payload.
+*/
+Route::post('/stripe/webhook', StripeWebhookController::class);
 
 /*
 |--------------------------------------------------------------------------

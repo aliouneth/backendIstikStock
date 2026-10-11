@@ -26,6 +26,7 @@ class SubscriptionCheckout extends Model
         'status',
         'driver',
         'provider_reference',
+        'stripe_subscription_id',
         'paid_at',
         'period_ends_at',
         'failure_reason',

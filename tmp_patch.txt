@@ -1,0 +1,16 @@
+--- a/app/Billing/StripePaymentGateway.php
++++ b/app/Billing/StripePaymentGateway.php
+@@ -116,6 +116,13 @@ class StripePaymentGateway implements PaymentGateway
+         $intent = $subscription['latest_invoice']['payment_intent'] ?? null;
+         $clientSecret = is_array($intent) ? ($intent['client_secret'] ?? null) : null;
+ 
++        if ($clientSecret === null && !empty($subscription['latest_invoice']['id'])) {
++            $invoice = $this->stripe->retrieveInvoice($subscription['latest_invoice']['id'], ['expand' => ['payment_intent']]);
++            $intent = $invoice['payment_intent'] ?? null;
++            $clientSecret = is_array($intent) ? ($intent['client_secret'] ?? null) : null;
++            $intentId = is_array($intent) ? ($intent['id'] ?? null) : null;
++        }
++
+         if ($clientSecret === null) {
+             throw new RuntimeException('Stripe did not return a payment intent for this subscription.');
+         }

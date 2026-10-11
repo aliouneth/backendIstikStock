@@ -5,9 +5,13 @@ namespace App\Providers;
 use App\Billing\CheckoutService;
 use App\Billing\ManualPaymentGateway;
 use App\Billing\PaymentGateway;
+use App\Billing\Stripe\SdkStripeClient;
+use App\Billing\Stripe\StripeClientContract;
+use App\Billing\StripePaymentGateway;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
+use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -16,14 +20,25 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(PaymentGateway::class, function () {
+        $this->app->singleton(StripeClientContract::class, function () {
+            return new SdkStripeClient(new StripeClient([
+                'api_key' => (string) config('services.stripe.secret'),
+            ]));
+        });
+
+        // Pin API version globally.
+        try {
+            \Stripe\Stripe::setApiVersion('2024-06-20');
+        } catch (\Throwable $e) {
+            // ignore if Stripe not loaded yet
+        }
+
+        $this->app->singleton(PaymentGateway::class, function ($app) {
             $driver = config('billing.driver', 'manual');
 
-            // Add the Stripe driver here when it is implemented; everything
-            // downstream (checkout, webhook confirmation, plan granting) is
-            // already driver agnostic.
             return match ($driver) {
                 'manual' => new ManualPaymentGateway,
+                'stripe' => new StripePaymentGateway($app->make(StripeClientContract::class)),
                 default => throw new RuntimeException("Unknown BILLING_DRIVER [{$driver}]. Implement it in AppServiceProvider."),
             };
         });
