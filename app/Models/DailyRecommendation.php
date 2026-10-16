@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'price_at_recommendation',
     'rationale',
     'features',
+    'risks',
     'model_version',
 ])]
 class DailyRecommendation extends Model
@@ -27,6 +28,7 @@ class DailyRecommendation extends Model
             'model_score' => 'float',
             'price_at_recommendation' => 'float',
             'features' => 'array',
+            'risks' => 'array',
         ];
     }
 

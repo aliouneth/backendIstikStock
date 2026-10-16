@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Support\Entitlements;
 use App\Support\Features;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 class SubscriptionSeeder extends Seeder
 {
@@ -97,7 +96,8 @@ class SubscriptionSeeder extends Seeder
             $user->forceFill([
                 'role' => User::ROLE_ADMIN,
                 'is_active' => true,
-                'password' => Hash::make($password),
+                // The User model casts `password` as `hashed`; assign plaintext here.
+                'password' => $password,
             ])->save();
         } else {
             User::query()->create([

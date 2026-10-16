@@ -194,6 +194,12 @@ class ScoringService
                 'avg_volume' => $row['avg_volume'],
             ]),
             'key_features' => $this->keyFeatures($row['features'], $contributions),
+            'risks' => RiskAssessor::assess(
+                $row['features'],
+                (float) $row['price'],
+                (float) $row['avg_volume'],
+                isset($row['stock']['market_cap']) ? (float) $row['stock']['market_cap'] : null
+            ),
             'features' => $row['features'],
         ];
     }
@@ -454,7 +460,7 @@ class ScoringService
         arsort($contributions);
 
         $keys = [
-            'ret_20d', 'ret_5d', 'rel_volume', 'volume_ratio_5_20', 'trend_slope_20',
+            'ret_20d', 'ret_5d', 'rel_volume', 'volume_ratio_5_20', 'gap_pct', 'trend_slope_20',
             'fed_trend_63', 'russell2000_ret_20', 'vix_change_10', 'vix_level',
         ];
 

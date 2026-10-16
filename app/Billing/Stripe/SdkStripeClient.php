@@ -44,18 +44,13 @@ class SdkStripeClient implements StripeClientContract
         return $this->client->paymentIntents->create($params)->toArray();
     }
 
-    public function retrievePaymentIntent(string $id, array $params = []): array
+    public function retrievePaymentIntent(string $id): array
     {
-        return $this->client->paymentIntents->retrieve($id, $params)->toArray();
+        return $this->client->paymentIntents->retrieve($id)->toArray();
     }
 
     public function retrieveInvoice(string $id, array $params = []): array
     {
         return $this->client->invoices->retrieve($id, $params)->toArray();
-    }
-
-    public function createInvoicePaymentIntent(string $invoiceId, array $params = []): array
-    {
-        return $this->client->invoices->createPaymentIntent($invoiceId, $params)->toArray();
     }
 }

@@ -47,20 +47,13 @@ interface StripeClientContract
     public function createPaymentIntent(array $params): array;
 
     /**
-     * @param  array<string, mixed>  $params
      * @return array<string, mixed>
      */
-    public function retrievePaymentIntent(string $id, array $params = []): array;
+    public function retrievePaymentIntent(string $id): array;
 
     /**
      * @param  array<string, mixed>  $params
      * @return array<string, mixed>
      */
     public function retrieveInvoice(string $id, array $params = []): array;
-
-    /**
-     * @param  array<string, mixed>  $params
-     * @return array<string, mixed>
-     */
-    public function createInvoicePaymentIntent(string $invoiceId, array $params = []): array;
 }

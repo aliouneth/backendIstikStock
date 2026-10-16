@@ -100,6 +100,7 @@ final class RationaleBuilder
                 ? 'clean 20-day uptrend in force'
                 : ($v < -0.03 ? 'downtrend decelerating' : null),
             'range_pos_20' => $v >= 0.85 ? 'trading near 20-day highs' : null,
+            'gap_pct' => abs($v) >= 0.05 ? 'overnight gap '.$pct($v).' from the prior close' : null,
             'dist_low_60' => $v > 0.6 ? 'bounced '.number_format($v * 100, 0).'% off the 60-day low' : null,
             'down_days_ratio_10' => $v <= 0.2 ? 'persistent bid — 80%+ up days in the last 10' : null,
             'log_avg_volume_20' => null,

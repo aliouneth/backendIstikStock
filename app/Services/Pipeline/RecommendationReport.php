@@ -188,6 +188,7 @@ class RecommendationReport
             'score' => (float) $rec->model_score,
             'rationale' => $rec->rationale,
             'key_features' => $rec->features ?? [],
+            'risks' => $rec->risks ?? [],
             'performance' => [
                 'current_price' => $last?->close_price !== null ? (float) $last->close_price : null,
                 'last_pct' => $last?->pct_change_since_recommendation !== null

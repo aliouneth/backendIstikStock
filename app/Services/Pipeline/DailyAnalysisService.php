@@ -160,6 +160,7 @@ class DailyAnalysisService
                     'price_at_recommendation' => $item['price'],
                     'rationale' => $item['rationale'],
                     'features' => $item['key_features'],
+                    'risks' => $item['risks'] ?? [],
                     'model_version' => $modelVersion,
                 ]);
 
@@ -172,6 +173,7 @@ class DailyAnalysisService
                     'score' => $item['score'],
                     'rationale' => $item['rationale'],
                     'key_features' => $item['key_features'],
+                    'risks' => $item['risks'] ?? [],
                 ];
             }
 

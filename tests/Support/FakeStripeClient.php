@@ -24,6 +24,9 @@ class FakeStripeClient implements StripeClientContract
     /** @var array<string, array<string, mixed>> */
     public array $paymentIntents = [];
 
+    /** @var array<string, array<string, mixed>> */
+    public array $invoices = [];
+
     private int $customerCounter = 0;
 
     private int $productCounter = 0;
@@ -96,6 +99,13 @@ class FakeStripeClient implements StripeClientContract
         $this->calls[] = ['retrievePaymentIntent', ['id' => $id]];
 
         return $this->paymentIntents[$id] ?? ['id' => $id, 'status' => 'requires_payment_method'];
+    }
+
+    public function retrieveInvoice(string $id, array $params = []): array
+    {
+        $this->calls[] = ['retrieveInvoice', ['id' => $id, 'params' => $params]];
+
+        return $this->invoices[$id] ?? ['id' => $id];
     }
 
     public function called(string $method): int

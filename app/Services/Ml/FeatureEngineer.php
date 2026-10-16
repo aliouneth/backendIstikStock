@@ -35,6 +35,7 @@ final class FeatureEngineer
         'dist_high_60',
         'dist_low_60',
         'range_pos_20',
+        'gap_pct',
         'log_price',
         'down_days_ratio_10',
         'log_avg_volume_20',
@@ -56,7 +57,7 @@ final class FeatureEngineer
     ];
 
     /**
-     * @param  array<int, array<string, mixed>>  $prices  chronological bars: date, close, volume
+     * @param  array<int, array<string, mixed>>  $prices  chronological bars: date, open, close, volume
      * @param  array<int, array<string, mixed>>  $macro  macro rows aligned 1:1 with $prices (same dates)
      * @param  array<int, array<string, mixed>>  $events  corporate events (event_date, event_type)
      * @param  array<string, mixed>  $meta  stock meta: market_cap
@@ -70,9 +71,11 @@ final class FeatureEngineer
         }
 
         $close = [];
+        $open = [];
         $volume = [];
         foreach ($prices as $bar) {
             $close[] = (float) $bar['close'];
+            $open[] = (float) ($bar['open'] ?? $bar['close']);
             $volume[] = (float) $bar['volume'];
         }
 
@@ -121,6 +124,11 @@ final class FeatureEngineer
         $split = self::hasEvent($events, 'split', 90, self::dateKey($prices[$t]['date'] ?? $prices[$t]['trade_date']));
 
         $marketCap = (float) ($meta['market_cap'] ?? 0.0);
+        $previousClose = $t > 0 ? $close[$t - 1] : 0.0;
+        $todayOpen = $open[$t] ?? 0.0;
+        $gap = $previousClose > 0 && $todayOpen > 0
+            ? $todayOpen / $previousClose - 1
+            : 0.0;
 
         return [
             'ret_1d' => self::ret($close, $t, 1),
@@ -137,6 +145,7 @@ final class FeatureEngineer
             'dist_high_60' => $high60 > 0 ? ($close[$t] - $high60) / $high60 : 0.0,
             'dist_low_60' => $low60 > 0 ? ($close[$t] - $low60) / $low60 : 0.0,
             'range_pos_20' => $high20 > $low20 ? ($close[$t] - $low20) / ($high20 - $low20) : 0.5,
+            'gap_pct' => $gap,
             'log_price' => log($close[$t]),
             'down_days_ratio_10' => $downDays / 10,
             'log_avg_volume_20' => log(max(1.0, $avgVol20)),

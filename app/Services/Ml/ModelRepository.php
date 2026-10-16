@@ -55,6 +55,13 @@ class ModelRepository
             return true;
         }
 
+        // Feature order is part of the artifact. Retrain when the active
+        // feature schema changes so new signals are actually learned.
+        $features = $meta['features'] ?? null;
+        if (! is_array($features) || array_values($features) !== FeatureEngineer::NAMES) {
+            return true;
+        }
+
         $trainedAt = new \DateTimeImmutable($meta['trained_at']);
         $maxAge = (int) ($this->config['retrain_days'] ?? 7);
 

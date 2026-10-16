@@ -117,7 +117,7 @@ class StripePaymentGateway implements PaymentGateway
         $clientSecret = is_array($intent) ? ($intent['client_secret'] ?? null) : null;
         $intentId = is_array($intent) ? ($intent['id'] ?? null) : null;
 
-        if ($clientSecret === null && !empty($subscription['latest_invoice']['id'])) {
+        if ($clientSecret === null && ! empty($subscription['latest_invoice']['id'])) {
             $invoiceId = $subscription['latest_invoice']['id'];
             $invoice = $this->stripe->retrieveInvoice($invoiceId, ['expand' => ['payment_intent']]);
             $intent = $invoice['payment_intent'] ?? null;
