@@ -54,12 +54,14 @@ final class FeatureEngineer
         // Corporate events
         'offering_recent_30d',
         'split_recent_90d',
+        'insider_buy_value_90d',
+        'insider_sell_value_90d',
     ];
 
     /**
      * @param  array<int, array<string, mixed>>  $prices  chronological bars: date, open, close, volume
      * @param  array<int, array<string, mixed>>  $macro  macro rows aligned 1:1 with $prices (same dates)
-     * @param  array<int, array<string, mixed>>  $events  corporate events (event_date, event_type)
+     * @param  array<int, array<string, mixed>>  $events  corporate events (event_date, event_type, meta)
      * @param  array<string, mixed>  $meta  stock meta: market_cap
      * @return array<string, float>|null
      */
@@ -120,8 +122,11 @@ final class FeatureEngineer
         $vix = (float) ($macroLast['vix_close'] ?? 0.0);
         $vixLag = (float) ($macro[max(0, $t - 10)]['vix_close'] ?? $vix);
 
-        $offering = self::hasEvent($events, 'offering', 30, self::dateKey($prices[$t]['date'] ?? $prices[$t]['trade_date']));
-        $split = self::hasEvent($events, 'split', 90, self::dateKey($prices[$t]['date'] ?? $prices[$t]['trade_date']));
+        $asOf = self::dateKey($prices[$t]['date'] ?? $prices[$t]['trade_date']);
+        $offering = self::hasEvent($events, 'offering', 30, $asOf);
+        $split = self::hasEvent($events, 'split', 90, $asOf);
+        $insiderBuys = self::sumEventMeta($events, 'insider_buy', 'buy_value', 90, $asOf);
+        $insiderSells = self::sumEventMeta($events, 'insider_sell', 'sell_value', 90, $asOf);
 
         $marketCap = (float) ($meta['market_cap'] ?? 0.0);
         $previousClose = $t > 0 ? $close[$t - 1] : 0.0;
@@ -165,6 +170,8 @@ final class FeatureEngineer
             'russell2000_ret_20' => self::macroRet($macro, $t, 'russell2000_close', 20),
             'offering_recent_30d' => $offering ? 1.0 : 0.0,
             'split_recent_90d' => $split ? 1.0 : 0.0,
+            'insider_buy_value_90d' => log(1.0 + $insiderBuys),
+            'insider_sell_value_90d' => log(1.0 + $insiderSells),
         ];
     }
 
@@ -320,6 +327,35 @@ final class FeatureEngineer
         }
 
         return $varX > 1e-12 ? $cov / $varX : 1.0;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     */
+    private static function sumEventMeta(array $events, string $type, string $key, int $days, string $asOf): float
+    {
+        if ($events === []) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+        $cutoff = (new \DateTimeImmutable($asOf))->modify("-{$days} days");
+        foreach ($events as $event) {
+            if (($event['event_type'] ?? '') !== $type) {
+                continue;
+            }
+            $when = new \DateTimeImmutable(self::dateKey($event['event_date']));
+            if ($when < $cutoff || $when->format('Y-m-d') > $asOf) {
+                continue;
+            }
+            $meta = $event['meta'] ?? [];
+            if (is_string($meta)) {
+                $meta = json_decode($meta, true);
+            }
+            $total += (float) (is_array($meta) ? ($meta[$key] ?? 0.0) : 0.0);
+        }
+
+        return $total;
     }
 
     /**

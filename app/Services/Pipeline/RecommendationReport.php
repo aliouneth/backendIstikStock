@@ -181,9 +181,9 @@ class RecommendationReport
 
         return [
             'rank' => $rec->rank,
-            'ticker' => $rec->stock->ticker ?? '?',
-            'name' => $rec->stock->name ?? null,
-            'sector' => $rec->stock->sector ?? null,
+            'ticker' => $rec->stock?->ticker ?? '?',
+            'name' => $rec->stock?->name ?? null,
+            'sector' => $rec->stock?->sector ?? null,
             'price_at_recommendation' => (float) $rec->price_at_recommendation,
             'score' => (float) $rec->model_score,
             'rationale' => $rec->rationale,

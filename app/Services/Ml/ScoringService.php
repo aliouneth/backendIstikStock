@@ -436,11 +436,12 @@ class ScoringService
             $cache = [];
             $rows = DB::table('corporate_events')
                 ->where('event_date', '>=', date('Y-m-d', strtotime('-1 year')))
-                ->get(['stock_id', 'event_date', 'event_type']);
+                ->get(['stock_id', 'event_date', 'event_type', 'meta']);
             foreach ($rows as $row) {
                 $cache[$row->stock_id][] = [
                     'event_date' => $row->event_date,
                     'event_type' => $row->event_type,
+                    'meta' => is_string($row->meta) ? json_decode($row->meta, true) : (array) $row->meta,
                 ];
             }
         }
@@ -461,6 +462,7 @@ class ScoringService
 
         $keys = [
             'ret_20d', 'ret_5d', 'rel_volume', 'volume_ratio_5_20', 'gap_pct', 'trend_slope_20',
+            'insider_buy_value_90d', 'insider_sell_value_90d',
             'fed_trend_63', 'russell2000_ret_20', 'vix_change_10', 'vix_level',
         ];
 

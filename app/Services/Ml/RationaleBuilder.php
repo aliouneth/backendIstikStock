@@ -67,6 +67,18 @@ final class RationaleBuilder
             : ucfirst($summary).'.';
     }
 
+    private static function money(float $value): string
+    {
+        if ($value >= 1_000_000) {
+            return '$'.number_format($value / 1_000_000, 1).'M';
+        }
+        if ($value >= 1_000) {
+            return '$'.number_format($value / 1_000, 1).'K';
+        }
+
+        return '$'.number_format($value, 0);
+    }
+
     private static function isMacro(string $name): bool
     {
         return in_array($name, [
@@ -120,6 +132,8 @@ final class RationaleBuilder
             'nasdaq_ret_20' => $v > 0.05 ? 'Nasdaq leadership '.$pct($v) : null,
             'offering_recent_30d' => $v >= 1 ? 'recent financing event absorbed by the tape' : null,
             'split_recent_90d' => $v >= 1 ? 'recent split — retail attention window' : null,
+            'insider_buy_value_90d' => $v >= 10 ? 'reported insider buying of '.self::money(exp($v) - 1).' in 90 days' : null,
+            'insider_sell_value_90d' => $v >= 10 ? 'reported insider selling of '.self::money(exp($v) - 1).' in 90 days' : null,
             default => null,
         };
     }

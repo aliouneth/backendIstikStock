@@ -127,11 +127,12 @@ class ModelTrainer
 
         // --- Corporate events, grouped by stock ---------------------------
         $eventsByStock = [];
-        $eventRows = DB::table('corporate_events')->get(['stock_id', 'event_date', 'event_type']);
+        $eventRows = DB::table('corporate_events')->get(['stock_id', 'event_date', 'event_type', 'meta']);
         foreach ($eventRows as $row) {
             $eventsByStock[$row->stock_id][] = [
                 'event_date' => $row->event_date,
                 'event_type' => $row->event_type,
+                'meta' => is_string($row->meta) ? json_decode($row->meta, true) : (array) $row->meta,
             ];
         }
 

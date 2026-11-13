@@ -11,6 +11,7 @@ use App\Billing\StripePaymentGateway;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
+use Stripe\Stripe;
 use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
@@ -28,7 +29,7 @@ class AppServiceProvider extends ServiceProvider
 
         // Pin API version globally.
         try {
-            \Stripe\Stripe::setApiVersion('2024-06-20');
+            Stripe::setApiVersion('2024-06-20');
         } catch (\Throwable $e) {
             // ignore if Stripe not loaded yet
         }

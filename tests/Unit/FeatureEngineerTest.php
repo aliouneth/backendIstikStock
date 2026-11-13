@@ -41,6 +41,47 @@ class FeatureEngineerTest extends TestCase
         $this->assertStringContainsString('Overnight gap +12.0%', $rationale);
     }
 
+    public function test_insider_values_measure_trailing_ninety_day_flow(): void
+    {
+        $prices = $this->bars(65);
+        $asOf = $prices[64]['date'];
+        $events = [
+            [
+                'event_date' => $asOf,
+                'event_type' => 'insider_buy',
+                'meta' => ['buy_value' => 30_000],
+            ],
+            [
+                'event_date' => date('Y-m-d', strtotime($asOf.' -10 days')),
+                'event_type' => 'insider_sell',
+                'meta' => json_encode(['sell_value' => 80_000]),
+            ],
+            [
+                'event_date' => date('Y-m-d', strtotime($asOf.' -120 days')),
+                'event_type' => 'insider_buy',
+                'meta' => ['buy_value' => 999_999],
+            ],
+        ];
+        $features = FeatureEngineer::compute($prices, $this->macro($prices), $events, ['market_cap' => 10_000_000]);
+
+        $this->assertNotNull($features);
+        $this->assertContains('insider_buy_value_90d', FeatureEngineer::NAMES);
+        $this->assertContains('insider_sell_value_90d', FeatureEngineer::NAMES);
+        $this->assertEqualsWithDelta(log(30_001), $features['insider_buy_value_90d'], 1e-9);
+        $this->assertEqualsWithDelta(log(80_001), $features['insider_sell_value_90d'], 1e-9);
+    }
+
+    public function test_insider_flow_appears_in_rationales(): void
+    {
+        $rationale = RationaleBuilder::build(
+            ['insider_buy_value_90d' => log(30_001)],
+            ['insider_buy_value_90d' => 1.0],
+            []
+        );
+
+        $this->assertStringContainsString('Reported insider buying of $30.0K', $rationale);
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
