@@ -10,9 +10,11 @@ return [
     | price, show enough liquidity and have enough history for features.
     */
     'penny_max_price' => (float) env('LISTIKHAR_PENNY_MAX_PRICE', 5.0),
-    'penny_min_price' => (float) env('LISTIKHAR_PENNY_MIN_PRICE', 0.05),
+    'penny_min_price' => (float) env('LISTIKHAR_PENNY_MIN_PRICE', 1.0),
     'min_avg_volume' => (int) env('LISTIKHAR_MIN_AVG_VOLUME', 100000),
+    'min_avg_dollar_volume' => (float) env('LISTIKHAR_MIN_AVG_DOLLAR_VOLUME', 500000),
     'min_history_days' => (int) env('LISTIKHAR_MIN_HISTORY_DAYS', 70),
+    'max_market_data_age_days' => (int) env('LISTIKHAR_MAX_MARKET_DATA_AGE_DAYS', 5),
     'top_picks' => (int) env('LISTIKHAR_TOP_PICKS', 5),
 
     /*
@@ -30,8 +32,12 @@ return [
         'subsample' => (float) env('LISTIKHAR_MODEL_SUBSAMPLE', 0.8),
         'l2_lambda' => (float) env('LISTIKHAR_MODEL_L2_LAMBDA', 1.0),
         'bins' => (int) env('LISTIKHAR_MODEL_BINS', 32),
-        'max_samples' => (int) env('LISTIKHAR_MODEL_MAX_SAMPLES', 30000),
-        'horizon_days' => (int) env('LISTIKHAR_MODEL_HORIZON_DAYS', 5),
+        'max_samples' => (int) env('LISTIKHAR_MODEL_MAX_SAMPLES', 100000),
+        'horizon_days' => (int) env('LISTIKHAR_MODEL_HORIZON_DAYS', 1),
+        'target' => 'clean_runner_10pct',
+        'runner_mfe_threshold' => (float) env('LISTIKHAR_MODEL_RUNNER_MFE_THRESHOLD', 0.10),
+        'runner_max_adverse_pct' => (float) env('LISTIKHAR_MODEL_RUNNER_MAX_ADVERSE_PCT', 0.10),
+        'minimum_expected_edge' => (float) env('LISTIKHAR_MODEL_MINIMUM_EXPECTED_EDGE', 0.0),
         'retrain_days' => (int) env('LISTIKHAR_MODEL_RETRAIN_DAYS', 7),
         'random_seed' => (int) env('LISTIKHAR_MODEL_RANDOM_SEED', 42),
         'lookback_days' => 130,

@@ -27,6 +27,7 @@ class DailyRecommendation extends Model
             'rank' => 'integer',
             'model_score' => 'float',
             'price_at_recommendation' => 'float',
+            'entry_price' => 'float',
             'features' => 'array',
             'risks' => 'array',
         ];

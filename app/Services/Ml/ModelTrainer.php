@@ -12,8 +12,8 @@ use Throwable;
  * stock bars + macro environment and trains the gradient boosting model.
  *
  * - Each sample = one stock at one day.
- * - Label      = forward `horizon_days` log return (what preceded a strong run
- *                is learned from the positive tail of this distribution).
+ * - Label      = +1 for a +10% next-session excursion without a -10% adverse
+ *                excursion, -1 for the adverse threshold, otherwise 0.
  * - Split      = chronological (last 15% of dates held out) so reported
  *                metrics are honest for a time-series problem.
  * - Sampling   = capped per config(model.max_samples), spread evenly across
@@ -43,17 +43,33 @@ class ModelTrainer
 
             $holdout = $model->evaluate($dataset['X_test'], $dataset['y_test']);
             $inSample = $model->evaluate($dataset['X_train'], $dataset['y_train']);
+            $holdoutRanking = $this->rankedHoldoutMetrics(
+                $model->predictMatrix($dataset['X_test']),
+                $dataset['y_test'],
+                $dataset['test_dates'],
+                $dataset['X_test']
+            );
 
             $meta = [
-                'metrics' => ['holdout' => $holdout, 'train' => $inSample],
+                'metrics' => ['holdout' => $holdout, 'holdout_ranking' => $holdoutRanking, 'train' => $inSample],
                 'fit' => $fit,
                 'dataset' => $dataset['stats'],
                 'hyperparameters' => array_intersect_key(
                     $this->repo->makeRegressor()->toArray()['params'] ?? [],
                     array_flip(['n_estimators', 'learning_rate', 'max_depth', 'min_child_samples', 'subsample', 'bins', 'max_samples', 'horizon_days'])
                 ),
-                'label' => 'forward_'.$dataset['stats']['horizon_days'].'d_log_return',
-                'split' => 'chronological_85_15',
+                'label' => 'next_open_clean_runner_outcome_'.$dataset['stats']['horizon_days'].'d',
+                'target' => config('listikhar.model.target'),
+                'runner_mfe_threshold' => config('listikhar.model.runner_mfe_threshold'),
+                'runner_max_adverse_pct' => config('listikhar.model.runner_max_adverse_pct'),
+                'entry' => 'next_session_open',
+                'universe_filters' => [
+                    'min_price' => (float) config('listikhar.penny_min_price'),
+                    'max_price' => (float) config('listikhar.penny_max_price'),
+                    'min_avg_volume' => (int) config('listikhar.min_avg_volume'),
+                    'min_avg_dollar_volume' => (float) config('listikhar.min_avg_dollar_volume'),
+                ],
+                'split' => 'chronological_85_15_purged_by_label_horizon',
             ];
 
             $this->repo->save($model, $meta);
@@ -81,7 +97,7 @@ class ModelTrainer
     /**
      * @return array{
      *   X_train: array<string, list<float>>, y_train: list<float>,
-     *   X_test: array<string, list<float>>, y_test: list<float>,
+     *   X_test: array<string, list<float>>, y_test: list<float>, test_dates: list<string>,
      *   stats: array<string, mixed>
      * }
      */
@@ -111,10 +127,13 @@ class ModelTrainer
             $macroRows
         );
         $testStart = $allDates[(int) floor(count($allDates) * 0.85)];
+        $testPeriodDates = array_values(array_filter($allDates, fn (string $date): bool => $date >= $testStart));
+        $testDateSet = $this->spreadDates($testPeriodDates, 20);
 
         // --- Stocks -------------------------------------------------------
         $stocks = DB::table('stocks')
             ->join('stock_prices', 'stocks.id', '=', 'stock_prices.stock_id')
+            ->whereIn('stocks.source', ['yahoo', 'csv'])
             ->groupBy('stocks.id')
             ->select('stocks.id', 'stocks.ticker', 'stocks.market_cap')
             ->havingRaw('COUNT(*) >= ?', [$minBars + 5])
@@ -137,7 +156,6 @@ class ModelTrainer
         }
 
         $perStockTrain = (int) floor($maxSamples * 0.85 / count($stocks));
-        $perStockTest = (int) max(1, ceil($maxSamples * 0.15 / count($stocks)));
         $perStockTrain = max(5, $perStockTrain);
 
         $X_train = $X_test = [];
@@ -147,6 +165,7 @@ class ModelTrainer
         }
         $y_train = [];
         $y_test = [];
+        $testDates = [];
 
         $trainCount = 0;
         $testCount = 0;
@@ -184,18 +203,23 @@ class ModelTrainer
             foreach ($candidates as $i) {
                 $key = FeatureEngineer::dateKey($alignedPrices[$i]['date'] ?? $alignedPrices[$i]['trade_date']);
                 if ($key < $testStart) {
-                    $trainDays[] = $i;
-                } else {
+                    $labelEnd = FeatureEngineer::dateKey(
+                        $alignedPrices[$i + $horizon]['date'] ?? $alignedPrices[$i + $horizon]['trade_date']
+                    );
+                    if ($labelEnd < $testStart) {
+                        $trainDays[] = $i;
+                    }
+                } elseif (isset($testDateSet[$key])) {
                     $testDays[] = $i;
                 }
             }
 
             mt_srand($seed + (int) $stock->id);
             $trainPick = $this->pick($trainDays, $perStockTrain);
-            $testPick = $this->pick($testDays, $perStockTest);
+            $testPick = $testDays;
 
             $events = $eventsByStock[$stock->id] ?? [];
-            $meta = ['market_cap' => $stock->market_cap];
+            $meta = [];
 
             foreach ($trainPick as $i) {
                 $sample = $this->sampleAt($alignedPrices, $alignedMacro, $events, $meta, $i, $lookback, $horizon);
@@ -215,6 +239,7 @@ class ModelTrainer
                         $X_test[$name][] = $value;
                     }
                     $y_test[] = $sample['label'];
+                    $testDates[] = $sample['as_of'];
                     $testCount++;
                 }
             }
@@ -237,12 +262,14 @@ class ModelTrainer
             'y_train' => $y_train,
             'X_test' => $X_test,
             'y_test' => $y_test,
+            'test_dates' => $testDates,
             'stats' => [
                 'stocks' => count($stocks),
                 'stocks_skipped' => $skipCount,
                 'train_samples' => $trainCount,
                 'test_samples' => $testCount,
                 'test_start_date' => $testStart,
+                'holdout_dates_selected' => count($testDateSet),
                 'date_range' => [$allDates[0], $allDates[count($allDates) - 1]],
                 'horizon_days' => $horizon,
                 'lookback_days' => $lookback,
@@ -255,7 +282,7 @@ class ModelTrainer
      * @param  array<int, array<string, mixed>>  $macro
      * @param  array<int, array<string, mixed>>  $events
      * @param  array<string, mixed>  $meta
-     * @return array{features: array<string, float>, label: float}|null
+     * @return array{features: array<string, float>, label: float, as_of: string}|null
      */
     private function sampleAt(array $prices, array $macro, array $events, array $meta, int $i, int $lookback, int $horizon): ?array
     {
@@ -264,20 +291,198 @@ class ModelTrainer
         $windowMacro = array_slice($macro, $start, $i - $start + 1);
 
         $features = FeatureEngineer::compute($windowPrices, $windowMacro, $events, $meta);
-        if ($features === null) {
+        if ($features === null || ! $this->isEligibleSample($prices, $i)) {
             return null;
         }
 
-        $entry = (float) $prices[$i]['close'];
-        $exit = (float) $prices[$i + $horizon]['close'];
-        if ($entry <= 0 || $exit <= 0) {
+        $entry = (float) ($prices[$i + 1]['open'] ?? 0.0);
+        if ($entry <= 0) {
             return null;
         }
+
+        $maxHigh = 0.0;
+        $minLow = INF;
+        for ($offset = 1; $offset <= $horizon; $offset++) {
+            $maxHigh = max($maxHigh, (float) ($prices[$i + $offset]['high'] ?? $prices[$i + $offset]['close']));
+            $minLow = min($minLow, (float) ($prices[$i + $offset]['low'] ?? $prices[$i + $offset]['close']));
+        }
+
+        if ($maxHigh <= 0 || $minLow <= 0) {
+            return null;
+        }
+
+        $favorablePct = $maxHigh / $entry - 1;
+        $adversePct = $minLow / $entry - 1;
+        $runnerThreshold = (float) config('listikhar.model.runner_mfe_threshold', 0.10);
+        $adverseThreshold = (float) config('listikhar.model.runner_max_adverse_pct', 0.10);
+        $label = $adversePct <= -$adverseThreshold
+            ? -1.0
+            : ($favorablePct >= $runnerThreshold ? 1.0 : 0.0);
 
         return [
             'features' => $features,
-            'label' => log($exit / $entry),
+            'label' => $label,
+            'as_of' => FeatureEngineer::dateKey($prices[$i]['date'] ?? $prices[$i]['trade_date']),
         ];
+    }
+
+    /**
+     * Measure whether the model ranks the strongest labels within each test date.
+     *
+     * @param  list<float>  $predictions
+     * @param  list<float>  $labels
+     * @param  list<string>  $dates
+     * @return array<string, mixed>
+     */
+    private function rankedHoldoutMetrics(array $predictions, array $labels, array $dates, array $features): array
+    {
+        $byDate = [];
+        foreach ($labels as $index => $label) {
+            $relativeVolume = (float) ($features['rel_volume'][$index] ?? 1.0);
+            $dollarVolumeSurge = (float) ($features['dollar_volume_ratio_5_20'][$index] ?? 1.0);
+            $gap = (float) ($features['gap_pct'][$index] ?? 0.0);
+            $closeLocation = (float) ($features['close_location_1d'][$index] ?? 0.5);
+            $byDate[$dates[$index]][] = [
+                'model' => $predictions[$index],
+                'relative_volume' => $relativeVolume,
+                'dollar_volume_surge' => $dollarVolumeSurge,
+                'gap' => $gap,
+                'gap_volume_rule' => log(max(0.1, $relativeVolume))
+                    + 3.0 * max(0.0, $gap)
+                    + 0.35 * log(max(0.1, $dollarVolumeSurge))
+                    + 0.2 * max(0.0, $closeLocation - 0.5),
+                'label' => $label,
+            ];
+        }
+
+        $rankers = ['model', 'relative_volume', 'dollar_volume_surge', 'gap', 'gap_volume_rule'];
+        $dailyResults = array_fill_keys($rankers, []);
+        $crossSectionMeans = [];
+        $crossSectionRunnerRates = [];
+        $crossSectionAdverseRates = [];
+
+        foreach ($byDate as $dateRows) {
+            if (count($dateRows) < 5) {
+                continue;
+            }
+            $labelsForDate = array_column($dateRows, 'label');
+            $crossSectionMeans[] = array_sum($labelsForDate) / count($labelsForDate);
+            $crossSectionRunnerRates[] = count(array_filter($labelsForDate, fn (float $label): bool => $label > 0)) / count($labelsForDate);
+            $crossSectionAdverseRates[] = count(array_filter($labelsForDate, fn (float $label): bool => $label < 0)) / count($labelsForDate);
+
+            foreach ($rankers as $ranker) {
+                $rows = $dateRows;
+                usort($rows, fn (array $left, array $right): int => $right[$ranker] <=> $left[$ranker]);
+                $eligibleRows = $ranker === 'model'
+                    ? array_values(array_filter(
+                        $rows,
+                        fn (array $row): bool => $row['model'] > (float) config('listikhar.model.minimum_expected_edge', 0.0)
+                    ))
+                    : $rows;
+                $selectedRows = array_slice($eligibleRows, 0, 5);
+                $topFive = array_column($selectedRows, 'label');
+                $topDecileCount = max(1, (int) ceil(count($rows) * 0.1));
+                $topDecile = array_column(array_slice($rows, 0, $topDecileCount), 'label');
+                $dailyResults[$ranker][] = [
+                    'top5_target' => $topFive !== [] ? array_sum($topFive) / count($topFive) : 0.0,
+                    'top5_runner_rate' => $topFive !== []
+                        ? count(array_filter($topFive, fn (float $label): bool => $label > 0)) / count($topFive)
+                        : 0.0,
+                    'top5_adverse_rate' => $topFive !== []
+                        ? count(array_filter($topFive, fn (float $label): bool => $label < 0)) / count($topFive)
+                        : 0.0,
+                    'top5_positive_score_rate' => count($selectedRows) / 5,
+                    'picks_per_day' => count($selectedRows),
+                    'top_decile_target' => array_sum($topDecile) / $topDecileCount,
+                ];
+            }
+        }
+
+        $rankerSummary = [];
+        foreach ($dailyResults as $ranker => $dateRows) {
+            $count = max(1, count($dateRows));
+            $rankerSummary[$ranker] = [
+                'avg_top5_target' => round(array_sum(array_column($dateRows, 'top5_target')) / $count, 6),
+                'top5_runner_rate_pct' => round(100 * array_sum(array_column($dateRows, 'top5_runner_rate')) / $count, 2),
+                'top5_adverse_rate_pct' => round(100 * array_sum(array_column($dateRows, 'top5_adverse_rate')) / $count, 2),
+                'top5_positive_score_rate_pct' => round(100 * array_sum(array_column($dateRows, 'top5_positive_score_rate')) / $count, 2),
+                'avg_selected_picks_per_day' => round(array_sum(array_column($dateRows, 'picks_per_day')) / $count, 2),
+                'avg_top_decile_target' => round(array_sum(array_column($dateRows, 'top_decile_target')) / $count, 6),
+            ];
+        }
+
+        $model = $rankerSummary['model'];
+        $crossSectionMean = array_sum($crossSectionMeans) / max(1, count($crossSectionMeans));
+        $crossSectionRunnerRate = array_sum($crossSectionRunnerRates) / max(1, count($crossSectionRunnerRates));
+        $crossSectionAdverseRate = array_sum($crossSectionAdverseRates) / max(1, count($crossSectionAdverseRates));
+
+        return [
+            'dates' => count($crossSectionMeans),
+            'rankers' => $rankerSummary,
+            'avg_top5_target' => $model['avg_top5_target'],
+            'avg_top5_lift' => round($model['avg_top5_target'] - $crossSectionMean, 6),
+            'top5_runner_rate_pct' => $model['top5_runner_rate_pct'],
+            'top5_adverse_rate_pct' => $model['top5_adverse_rate_pct'],
+            'avg_top_decile_target' => $model['avg_top_decile_target'],
+            'avg_cross_section_target' => round($crossSectionMean, 6),
+            'avg_top_decile_lift' => round($model['avg_top_decile_target'] - $crossSectionMean, 6),
+            'cross_section_runner_rate_pct' => round(100 * $crossSectionRunnerRate, 2),
+            'cross_section_adverse_rate_pct' => round(100 * $crossSectionAdverseRate, 2),
+        ];
+    }
+
+    /**
+     * Select evenly spaced trading dates so holdout ranking uses a full cross-section per date.
+     *
+     * @param  list<string>  $dates
+     * @return array<string, true>
+     */
+    private function spreadDates(array $dates, int $desired): array
+    {
+        $count = count($dates);
+        if ($count === 0) {
+            return [];
+        }
+
+        $sampleCount = min($desired, $count);
+        $selected = [];
+        for ($i = 0; $i < $sampleCount; $i++) {
+            $index = $sampleCount === 1
+                ? $count - 1
+                : (int) round($i * ($count - 1) / ($sampleCount - 1));
+            $selected[$dates[$index]] = true;
+        }
+
+        return $selected;
+    }
+
+    /**
+     * Training rows must use the same penny price and liquidity gates as live inference.
+     *
+     * @param  array<int, array<string, mixed>>  $prices
+     */
+    private function isEligibleSample(array $prices, int $index): bool
+    {
+        $close = (float) $prices[$index]['close'];
+        $minPrice = (float) config('listikhar.penny_min_price');
+        $maxPrice = (float) config('listikhar.penny_max_price');
+        if ($close < $minPrice || $close > $maxPrice) {
+            return false;
+        }
+
+        $start = max(0, $index - 19);
+        $volumeTotal = 0.0;
+        $dollarVolumeTotal = 0.0;
+        $count = $index - $start + 1;
+        for ($i = $start; $i <= $index; $i++) {
+            $volume = (float) $prices[$i]['volume'];
+            $volumeTotal += $volume;
+            $dollarVolumeTotal += (float) $prices[$i]['close'] * $volume;
+        }
+
+        return $count > 0
+            && ($volumeTotal / $count) >= (int) config('listikhar.min_avg_volume')
+            && ($dollarVolumeTotal / $count) >= (float) config('listikhar.min_avg_dollar_volume', 250_000);
     }
 
     /**

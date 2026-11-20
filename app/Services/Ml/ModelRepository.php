@@ -14,6 +14,9 @@ use RuntimeException;
  */
 class ModelRepository
 {
+    /** @var array<string, mixed> */
+    private array $config;
+
     public function __construct(?array $config = null)
     {
         $this->config = $config ?? config('listikhar.model', []);
@@ -59,6 +62,24 @@ class ModelRepository
         // feature schema changes so new signals are actually learned.
         $features = $meta['features'] ?? null;
         if (! is_array($features) || array_values($features) !== FeatureEngineer::NAMES) {
+            return true;
+        }
+
+        if (($meta['target'] ?? null) !== ($this->config['target'] ?? 'clean_runner_10pct')) {
+            return true;
+        }
+
+        if ((int) ($meta['dataset']['horizon_days'] ?? 0) !== (int) ($this->config['horizon_days'] ?? 1)) {
+            return true;
+        }
+
+        $expectedFilters = [
+            'min_price' => (float) config('listikhar.penny_min_price'),
+            'max_price' => (float) config('listikhar.penny_max_price'),
+            'min_avg_volume' => (int) config('listikhar.min_avg_volume'),
+            'min_avg_dollar_volume' => (float) config('listikhar.min_avg_dollar_volume'),
+        ];
+        if (($meta['universe_filters'] ?? null) != $expectedFilters) {
             return true;
         }
 

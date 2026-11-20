@@ -22,6 +22,18 @@ class Features
 
     public const WATCHLISTS = 'watchlists';
 
+    public const GROWTH_POTENTIAL = 'growth_potential';
+    // Backwards/alternative names resolve to the single canonical feature key.
+    public const POTENTIAL_GROWTH = self::GROWTH_POTENTIAL;
+    public const STOCK_GROWTH = self::GROWTH_POTENTIAL;
+    public const GROWTH_FORECAST = self::GROWTH_POTENTIAL;
+    public const GROWTH_PREDICTION = self::GROWTH_POTENTIAL;
+    public const PREDICTED_GROWTH = self::GROWTH_POTENTIAL;
+    public const GROWTH_LOOKUP = self::GROWTH_POTENTIAL;
+    public const STOCK_GROWTH_POTENTIAL = self::GROWTH_POTENTIAL;
+    public const POTENTIAL_STOCK_GROWTH = self::GROWTH_POTENTIAL;
+    public const GROWTH_ANALYSIS = self::GROWTH_POTENTIAL;
+
     /**
      * @return array<string, string>
      */
@@ -37,6 +49,7 @@ class Features
             self::FULL_RATIONALE => 'Full rationale & key drivers',
             self::STOCK_LOOKUP => 'Single stock model lookup',
             self::WATCHLISTS => 'Stock watchlists',
+            self::GROWTH_POTENTIAL => 'Stock growth potential',
         ];
     }
 

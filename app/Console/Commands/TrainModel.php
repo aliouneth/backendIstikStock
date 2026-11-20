@@ -25,9 +25,9 @@ class TrainModel extends Command
             }
         }
 
-        $this->info('Building dataset + training histogram gradient boosting model...');
+        $this->info('Building next-session runner dataset + training the ranking model...');
 
-        $bar = $this->output->createProgressBar(100);
+        $bar = $this->output->createProgressBar((int) config('listikhar.model.n_estimators', 120));
         $bar->setFormat(' %current%/%max% trees %bar% %percent:3s%%');
         $bar->start();
 
@@ -40,6 +40,8 @@ class TrainModel extends Command
         $this->newLine(2);
 
         $holdout = $meta['metrics']['holdout'] ?? [];
+        $ranking = $meta['metrics']['holdout_ranking'] ?? [];
+        $rankers = $ranking['rankers'] ?? [];
         $this->table(
             ['Metric', 'Value'],
             [
@@ -51,6 +53,15 @@ class TrainModel extends Command
                 ['holdout MAE', (string) ($holdout['mae'] ?? '?')],
                 ['holdout R²', (string) ($holdout['r2'] ?? '?')],
                 ['holdout Spearman (rank corr.)', (string) ($holdout['spearman'] ?? '?')],
+                ['daily top-5 target lift', (string) ($ranking['avg_top5_lift'] ?? '?')],
+                ['daily top-5 runner rate', (string) ($ranking['top5_runner_rate_pct'] ?? '?').'%'],
+                ['daily top-5 adverse rate', (string) ($ranking['top5_adverse_rate_pct'] ?? '?').'%'],
+                ['top-5 positive-score coverage', (string) ($rankers['model']['top5_positive_score_rate_pct'] ?? '?').'%'],
+                ['model picks per holdout date', (string) ($rankers['model']['avg_selected_picks_per_day'] ?? '?')],
+                ['sampled-universe runner rate', (string) ($ranking['cross_section_runner_rate_pct'] ?? '?').'%'],
+                ['relative-volume top-5 runner rate', (string) ($rankers['relative_volume']['top5_runner_rate_pct'] ?? '?').'%'],
+                ['gap-volume-rule top-5 runner rate', (string) ($rankers['gap_volume_rule']['top5_runner_rate_pct'] ?? '?').'%'],
+                ['holdout dates ranked', (string) ($ranking['dates'] ?? '?')],
                 ['fit seconds', (string) ($meta['fit']['fit_seconds'] ?? '?')],
             ]
         );

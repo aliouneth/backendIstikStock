@@ -17,8 +17,6 @@ class PerformanceTrackingService
      */
     public function update(): array
     {
-        $benchmarkSymbol = config('listikhar.benchmark_symbol', '^RUT');
-
         $macro = DB::table('macro_environment')
             ->orderBy('observation_date')
             ->get(['observation_date', 'russell2000_close']);
@@ -38,19 +36,27 @@ class PerformanceTrackingService
 
         foreach ($recommendations as $rec) {
             $recDate = $rec->recommendation_date->format('Y-m-d');
-            $entryPrice = (float) $rec->price_at_recommendation;
-            if ($entryPrice <= 0) {
-                continue;
-            }
-
             $prices = DB::table('stock_prices')
                 ->where('stock_id', $rec->stock_id)
                 ->where('trade_date', '>', $recDate)
                 ->orderBy('trade_date')
-                ->get(['trade_date', 'close']);
+                ->get(['trade_date', 'open', 'close']);
 
             if ($prices->isEmpty()) {
                 continue;
+            }
+
+            $entryPrice = $rec->entry_price !== null
+                ? (float) $rec->entry_price
+                : (float) $prices->first()->open;
+            if ($entryPrice <= 0) {
+                continue;
+            }
+
+            if ($rec->entry_price === null) {
+                DB::table('daily_recommendations')
+                    ->where('id', $rec->id)
+                    ->update(['entry_price' => $entryPrice, 'updated_at' => now()]);
             }
 
             $benchmarkEntry = $benchmarkByDate[$this->previousBenchmarkDate($benchmarkByDate, $recDate)]

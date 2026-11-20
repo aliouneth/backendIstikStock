@@ -108,6 +108,15 @@ final class RationaleBuilder
             'volume_ratio_5_20' => $v >= 1.3
                 ? '5-day volume '.number_format($v, 1).'x the prior baseline'
                 : null,
+            'dollar_volume_ratio_5_20' => $v >= 1.3
+                ? '5-day dollar liquidity '.number_format($v, 1).'x the prior baseline'
+                : null,
+            'log_avg_dollar_volume_20' => isset($context['avg_dollar_volume'])
+                ? 'average daily dollar liquidity of '.self::money((float) $context['avg_dollar_volume'])
+                : null,
+            'range_pct_1d' => $v >= 0.12 ? 'wide daily trading range of '.number_format($v * 100, 1).'%' : null,
+            'close_location_1d' => $v >= 0.8 ? 'closed near the session high' : null,
+            'open_to_close_1d' => $v >= 0.04 ? 'strong close, up '.number_format($v * 100, 1).'% from the open' : null,
             'trend_slope_20' => $v > 0.02
                 ? 'clean 20-day uptrend in force'
                 : ($v < -0.03 ? 'downtrend decelerating' : null),
@@ -116,7 +125,6 @@ final class RationaleBuilder
             'dist_low_60' => $v > 0.6 ? 'bounced '.number_format($v * 100, 0).'% off the 60-day low' : null,
             'down_days_ratio_10' => $v <= 0.2 ? 'persistent bid — 80%+ up days in the last 10' : null,
             'log_avg_volume_20' => null,
-            'log_market_cap' => null,
             'log_price' => null,
             'vol_20d' => $v > 0.09 ? 'high realized volatility ('.number_format($v * 100, 1).'% daily)' : null,
             'beta_rut_20' => $v > 1.4 ? 'high small-cap beta ('.number_format($v, 2).'x Russell 2000)' : null,

@@ -36,8 +36,12 @@ class ScoringService
         $universe = $this->scoreUniverse($date);
         $model = $this->repo->loadOrFail();
 
-        $scored = $universe['scored'];
-        $top = array_slice($scored, 0, $topN);
+        $minimumExpectedEdge = (float) config('listikhar.model.minimum_expected_edge', 0.0);
+        $positiveEdgeCandidates = array_values(array_filter(
+            $universe['scored'],
+            fn (array $row): bool => $row['raw'] > $minimumExpectedEdge
+        ));
+        $top = array_slice($positiveEdgeCandidates, 0, $topN);
 
         // Resolve real sector/industry for picks not enriched yet (one
         // keyless Nasdaq request per ticker, cached on the stocks row).
@@ -187,18 +191,21 @@ class ScoringService
             'sector' => $sector,
             'price' => round($row['price'], 4),
             'avg_volume' => (int) $row['avg_volume'],
+            'avg_dollar_volume' => round((float) $row['avg_dollar_volume'], 2),
             'score' => round($row['score'], 2),
             'raw_score' => round($row['raw'], 6),
             'rationale' => RationaleBuilder::build($row['features'], $contributions, [
                 'sector' => $sector,
                 'avg_volume' => $row['avg_volume'],
+                'avg_dollar_volume' => $row['avg_dollar_volume'],
             ]),
             'key_features' => $this->keyFeatures($row['features'], $contributions),
             'risks' => RiskAssessor::assess(
                 $row['features'],
                 (float) $row['price'],
                 (float) $row['avg_volume'],
-                isset($row['stock']['market_cap']) ? (float) $row['stock']['market_cap'] : null
+                isset($row['stock']['market_cap']) ? (float) $row['stock']['market_cap'] : null,
+                (float) $row['avg_dollar_volume']
             ),
             'features' => $row['features'],
         ];
@@ -242,6 +249,20 @@ class ScoringService
             return sprintf('Price $%.4f is outside the $%.2f-$%.2f penny-stock band.', $price, $min, $max);
         }
 
+        $recent = DB::table('stock_prices')
+            ->where('stock_id', $stock->id)
+            ->where('trade_date', '<=', $date)
+            ->orderByDesc('trade_date')
+            ->limit(20)
+            ->get(['close', 'volume']);
+        $avgDollarVolume = $recent->isEmpty()
+            ? 0.0
+            : $recent->sum(fn ($bar): float => (float) $bar->close * (float) $bar->volume) / $recent->count();
+
+        if ($avgDollarVolume < (float) config('listikhar.min_avg_dollar_volume')) {
+            return 'Average dollar volume is below the liquidity floor of $'.number_format((float) config('listikhar.min_avg_dollar_volume')).'.';
+        }
+
         return 'Average volume is below the liquidity floor of '.config('listikhar.min_avg_volume').' shares.';
     }
 
@@ -266,7 +287,7 @@ class ScoringService
      */
     private function scoreUniverse(string $date): array
     {
-        $cacheKey = "score:{$date}:".$this->repo->loadOrFail()->version();
+        $cacheKey = "score:v2:{$date}:".$this->repo->loadOrFail()->version();
 
         return Cache::remember($cacheKey, (int) config('listikhar.score_cache_seconds', 900), function () use ($date) {
             return $this->buildUniverse($date);
@@ -309,11 +330,13 @@ class ScoringService
             // Fresh liquidity/price gate using the latest bar.
             $price = $features['_price'];
             $avgVol = $features['_avg_volume'];
-            unset($features['_price'], $features['_avg_volume']);
+            $avgDollarVolume = $features['_avg_dollar_volume'];
+            unset($features['_price'], $features['_avg_volume'], $features['_avg_dollar_volume']);
 
             if ($price < (float) config('listikhar.penny_min_price')
                 || $price > (float) config('listikhar.penny_max_price')
-                || $avgVol < (int) config('listikhar.min_avg_volume')) {
+                || $avgVol < (int) config('listikhar.min_avg_volume')
+                || $avgDollarVolume < (float) config('listikhar.min_avg_dollar_volume')) {
                 $skipped++;
 
                 continue;
@@ -323,6 +346,7 @@ class ScoringService
                 'stock' => (array) $stock,
                 'price' => $price,
                 'avg_volume' => $avgVol,
+                'avg_dollar_volume' => $avgDollarVolume,
                 'features' => $features,
                 'raw' => $model->predictRow($features),
             ];
@@ -332,17 +356,14 @@ class ScoringService
             throw new \RuntimeException('No candidates survived the penny-stock filters.');
         }
 
-        // Min-max normalize raw forward-return predictions to a 0-100 score.
-        $min = min(array_column($scored, 'raw'));
-        $max = max(array_column($scored, 'raw'));
-        $range = $max - $min;
-
-        foreach ($scored as &$row) {
-            $row['score'] = $range > 1e-12 ? 100 * ($row['raw'] - $min) / $range : 50.0;
+        usort($scored, fn ($a, $b) => $b['raw'] <=> $a['raw']);
+        $lastIndex = count($scored) - 1;
+        foreach ($scored as $index => &$row) {
+            $row['score'] = $lastIndex > 0
+                ? 100 * (1 - ($index / $lastIndex))
+                : 100.0;
         }
         unset($row);
-
-        usort($scored, fn ($a, $b) => $b['raw'] <=> $a['raw']);
 
         return [
             'scored' => $scored,
@@ -400,9 +421,15 @@ class ScoringService
         $volumes = array_column($prices, 'volume');
         $last = count($closes) - 1;
         $avgVol20 = array_sum(array_slice($volumes, max(0, $last - 19), min(20, $last + 1))) / min(20, $last + 1);
+        $dollarVolumes = [];
+        for ($i = max(0, $last - 19); $i <= $last; $i++) {
+            $dollarVolumes[] = (float) $closes[$i] * (float) $volumes[$i];
+        }
+        $avgDollarVolume20 = array_sum($dollarVolumes) / count($dollarVolumes);
 
         $features['_price'] = (float) $closes[$last];
         $features['_avg_volume'] = (float) $avgVol20;
+        $features['_avg_dollar_volume'] = (float) $avgDollarVolume20;
 
         return $features;
     }
@@ -461,7 +488,8 @@ class ScoringService
         arsort($contributions);
 
         $keys = [
-            'ret_20d', 'ret_5d', 'rel_volume', 'volume_ratio_5_20', 'gap_pct', 'trend_slope_20',
+            'ret_20d', 'ret_5d', 'rel_volume', 'volume_ratio_5_20', 'dollar_volume_ratio_5_20',
+            'gap_pct', 'range_pct_1d', 'close_location_1d', 'open_to_close_1d', 'trend_slope_20',
             'insider_buy_value_90d', 'insider_sell_value_90d',
             'fed_trend_63', 'russell2000_ret_20', 'vix_change_10', 'vix_level',
         ];

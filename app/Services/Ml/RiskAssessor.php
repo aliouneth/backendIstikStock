@@ -29,7 +29,13 @@ final class RiskAssessor
      * @param  array<string, float>  $features
      * @return list<array{code: string, label: string, detail: string}>
      */
-    public static function assess(array $features, float $price, float $avgVolume, ?float $marketCap = null): array
+    public static function assess(
+        array $features,
+        float $price,
+        float $avgVolume,
+        ?float $marketCap = null,
+        ?float $avgDollarVolume = null,
+    ): array
     {
         $risks = [];
 
@@ -42,7 +48,7 @@ final class RiskAssessor
         }
 
         if ($avgVolume > 0 && $price > 0) {
-            $dollarVolume = $price * $avgVolume;
+            $dollarVolume = $avgDollarVolume ?? ($price * $avgVolume);
             if ($dollarVolume < self::MIN_AVG_DOLLAR_VOLUME) {
                 $risks[] = [
                     'code' => 'thin_dollar_liquidity',

@@ -103,48 +103,106 @@ class RecommendationReport
      */
     public function evaluate(): array
     {
-        $rows = DB::table('stock_performance_tracking as t')
-            ->join('daily_recommendations as r', 'r.id', '=', 't.recommendation_id')
-            ->select(
-                't.track_date',
-                't.pct_change_since_recommendation as pct',
-                't.benchmark_pct_change as bench',
-                'r.recommendation_date'
-            )
-            ->whereNotNull('t.pct_change_since_recommendation')
-            ->get();
+        $recommendations = DailyRecommendation::query()
+            ->orderByDesc('recommendation_date')
+            ->orderByDesc('id')
+            ->limit(1000)
+            ->get(['id', 'stock_id', 'recommendation_date', 'entry_price', 'rank']);
 
-        if ($rows->isEmpty()) {
-            return ['tracked_rows' => 0, 'message' => 'No tracked performance yet.'];
+        if ($recommendations->isEmpty()) {
+            return ['tracked_rows' => 0, 'recommendations_evaluated' => 0, 'message' => 'No recommendations to evaluate.'];
         }
 
-        // Latest observation per recommendation = current standing of each pick.
-        $byRec = [];
-        foreach ($rows as $row) {
-            $byRec[$row->recommendation_date][] = $row;
-        }
+        $benchmarkByDate = DB::table('macro_environment')
+            ->whereNotNull('russell2000_close')
+            ->orderBy('observation_date')
+            ->pluck('russell2000_close', 'observation_date')
+            ->map(fn ($value): float => (float) $value)
+            ->all();
+        $horizons = [1, 5, 20];
+        $outcomes = array_fill_keys($horizons, []);
 
-        $returns = [];
-        $bench = [];
-        foreach ($byRec as $recRows) {
-            $last = end($recRows);
-            $returns[] = (float) $last->pct;
-            if ($last->bench !== null) {
-                $bench[] = (float) $last->bench;
+        foreach ($recommendations as $recommendation) {
+            $recommendationDate = $recommendation->recommendation_date->format('Y-m-d');
+            $bars = DB::table('stock_prices')
+                ->where('stock_id', $recommendation->stock_id)
+                ->where('trade_date', '>', $recommendationDate)
+                ->orderBy('trade_date')
+                ->limit(max($horizons))
+                ->get(['trade_date', 'open', 'high', 'low', 'close']);
+
+            if ($bars->isEmpty()) {
+                continue;
+            }
+
+            $entry = $recommendation->entry_price !== null
+                ? (float) $recommendation->entry_price
+                : (float) $bars->first()->open;
+            if ($entry <= 0) {
+                continue;
+            }
+
+            $benchmarkEntry = $benchmarkByDate[$recommendationDate] ?? null;
+            foreach ($horizons as $horizon) {
+                if ($bars->count() < $horizon) {
+                    continue;
+                }
+
+                $window = $bars->take($horizon);
+                $last = $window->last();
+                $highest = (float) $window->max('high');
+                $lowest = (float) $window->min('low');
+                $benchmarkExit = $benchmarkByDate[$last->trade_date] ?? null;
+                $closeReturn = ((float) $last->close / $entry - 1) * 100;
+                $outcomes[$horizon][] = [
+                    'close' => $closeReturn,
+                    'mfe' => ($highest / $entry - 1) * 100,
+                    'adverse' => ($lowest / $entry - 1) * 100,
+                    'benchmark' => $benchmarkEntry !== null && $benchmarkExit !== null
+                        ? ($benchmarkExit / $benchmarkEntry - 1) * 100
+                        : null,
+                ];
             }
         }
 
-        $hit = count(array_filter($returns, fn ($r) => $r > 0));
-        $avg = array_sum($returns) / count($returns);
-        $avgBench = $bench !== [] ? array_sum($bench) / count($bench) : null;
+        $summary = [];
+        foreach ($horizons as $horizon) {
+            $rows = $outcomes[$horizon];
+            $returns = array_column($rows, 'close');
+            $benchmark = array_values(array_filter(array_column($rows, 'benchmark'), fn ($value): bool => $value !== null));
+            $average = $returns !== [] ? array_sum($returns) / count($returns) : null;
+            $averageBenchmark = $benchmark !== [] ? array_sum($benchmark) / count($benchmark) : null;
+            $summary[$horizon] = [
+                'recommendations_evaluated' => count($rows),
+                'avg_close_return_pct' => $average !== null ? round($average, 2) : null,
+                'median_close_return_pct' => $returns !== [] ? round($this->median($returns), 2) : null,
+                'positive_close_rate_pct' => $returns !== []
+                    ? round(100 * count(array_filter($returns, fn (float $value): bool => $value > 0)) / count($returns), 1)
+                    : null,
+                'avg_mfe_pct' => $rows !== [] ? round(array_sum(array_column($rows, 'mfe')) / count($rows), 2) : null,
+                'mfe_10pct_rate_pct' => $rows !== []
+                    ? round(100 * count(array_filter($rows, fn (array $row): bool => $row['mfe'] >= 10)) / count($rows), 1)
+                    : null,
+                'avg_adverse_pct' => $rows !== [] ? round(array_sum(array_column($rows, 'adverse')) / count($rows), 2) : null,
+                'avg_benchmark_return_pct' => $averageBenchmark !== null ? round($averageBenchmark, 2) : null,
+                'avg_excess_pct' => $average !== null && $averageBenchmark !== null
+                    ? round($average - $averageBenchmark, 2)
+                    : null,
+            ];
+        }
+
+        $oneSession = $summary[1];
 
         return [
-            'recommendations_evaluated' => count($returns),
-            'tracked_rows' => $rows->count(),
-            'avg_pick_return_pct' => round($avg, 2),
-            'avg_benchmark_return_pct' => $avgBench !== null ? round($avgBench, 2) : null,
-            'avg_excess_pct' => $avgBench !== null ? round($avg - $avgBench, 2) : null,
-            'hit_rate_pct' => round(100 * $hit / count($returns), 1),
+            'recommendations_evaluated' => $oneSession['recommendations_evaluated'],
+            'tracked_rows' => (int) DB::table('stock_performance_tracking')->count(),
+            'avg_pick_return_pct' => $oneSession['avg_close_return_pct'],
+            'median_pick_return_pct' => $oneSession['median_close_return_pct'],
+            'avg_benchmark_return_pct' => $oneSession['avg_benchmark_return_pct'],
+            'avg_excess_pct' => $oneSession['avg_excess_pct'],
+            'hit_rate_pct' => $oneSession['positive_close_rate_pct'],
+            'horizons' => $summary,
+            'entry_convention' => 'next_session_open',
         ];
     }
 
@@ -163,10 +221,23 @@ class RecommendationReport
             'trained' => true,
             'version' => $meta['version'] ?? null,
             'trained_at' => $meta['trained_at'] ?? null,
+            'target' => $meta['target'] ?? null,
+            'entry' => $meta['entry'] ?? null,
             'metrics' => $meta['metrics'] ?? null,
             'dataset' => $meta['dataset'] ?? null,
             'top_features' => array_slice($importance, 0, 8, true),
         ];
+    }
+
+    /** @param  list<float>  $values */
+    private function median(array $values): float
+    {
+        sort($values, SORT_NUMERIC);
+        $middle = intdiv(count($values), 2);
+
+        return count($values) % 2 === 0
+            ? ($values[$middle - 1] + $values[$middle]) / 2
+            : $values[$middle];
     }
 
     /**
@@ -185,6 +256,7 @@ class RecommendationReport
             'name' => $rec->stock?->name ?? null,
             'sector' => $rec->stock?->sector ?? null,
             'price_at_recommendation' => (float) $rec->price_at_recommendation,
+            'entry_price' => $rec->entry_price !== null ? (float) $rec->entry_price : null,
             'score' => (float) $rec->model_score,
             'rationale' => $rec->rationale,
             'key_features' => $rec->features ?? [],

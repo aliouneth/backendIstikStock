@@ -54,6 +54,8 @@ class DailyAnalysisService
                 $refreshSummary['macro'] = $this->macroRefresh->refresh();
             }
 
+            $this->assertMarketDataFresh();
+
             $retrained = false;
             if ($this->repo->isStale()) {
                 $this->trainer->train();
@@ -179,5 +181,32 @@ class DailyAnalysisService
 
             return $out;
         });
+    }
+
+    private function assertMarketDataFresh(): void
+    {
+        $latest = DB::table('stock_prices')->max('trade_date');
+        if ($latest === null) {
+            throw new \RuntimeException('No market bars are available. Refresh market data before generating recommendations.');
+        }
+
+        $ageDays = (int) floor((strtotime(now()->toDateString()) - strtotime((string) $latest)) / 86400);
+        $maximumAge = (int) config('listikhar.max_market_data_age_days', 5);
+        if ($ageDays > $maximumAge) {
+            throw new \RuntimeException(sprintf(
+                'Market data is stale: latest bar is %s (%d calendar days old). Refresh data before generating recommendations.',
+                $latest,
+                $ageDays
+            ));
+        }
+
+        $latestMacroDate = DB::table('macro_environment')->max('observation_date');
+        if ($latestMacroDate === null || (string) $latestMacroDate < (string) $latest) {
+            throw new \RuntimeException(sprintf(
+                'Macro data is stale: latest observation is %s while stock bars extend to %s. Refresh macro data before generating recommendations.',
+                $latestMacroDate ?? 'none',
+                $latest
+            ));
+        }
     }
 }

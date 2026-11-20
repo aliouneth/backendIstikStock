@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\AnalysisController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\Api\GrowthPotentialController;
 use App\Http\Controllers\Api\NewsScanController;
 use App\Http\Controllers\Api\StockLookupController;
 use App\Http\Controllers\Api\StripeWebhookController;
@@ -60,6 +61,22 @@ Route::middleware('auth.optional')->group(function (): void {
         ->middleware('feature:'.Features::STOCK_LOOKUP);
     Route::get('/stocks/{ticker}/evaluation', [StockLookupController::class, 'evaluate'])
         ->middleware('feature:'.Features::STOCK_LOOKUP);
+
+    // Potential growth of a specific stock (Premium). Multiple path aliases
+    // are registered so the feature stays reachable under any of the names
+    // used across the UI and documentation.
+    foreach ([
+        '/stocks/{ticker}/growth',
+        '/stocks/{ticker}/growth-potential',
+        '/stocks/{ticker}/potential-growth',
+        '/stocks/{ticker}/growth-forecast',
+        '/growth/{ticker}',
+        '/growth-potential/{ticker}',
+        '/potential-growth/{ticker}',
+    ] as $path) {
+        Route::get($path, [GrowthPotentialController::class, 'show'])
+            ->middleware('feature:'.Features::GROWTH_POTENTIAL);
+    }
 
     // Premium watchlists: named lists of tracked stocks with per-item
     // price history and model evaluation.

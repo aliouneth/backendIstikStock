@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Log;
  * Pulls the latest daily OHLCV history for the stored tradable universe
  * from Yahoo Finance and upserts it. By default the whole universe is
  * refreshed, but only when new market data is actually available (the
- * latest Russell/S&P session is ahead of our stored bars). Failure at any
- * point is non-fatal: the pipeline falls back to the stored dataset.
+ * latest Russell/S&P session is ahead of our stored bars). Partial failures
+ * are reported per symbol; stale data is rejected by the daily pipeline.
  */
 class MarketDataRefreshService
 {
@@ -127,7 +127,11 @@ class MarketDataRefreshService
         }
 
         foreach (array_chunk($rows, 500) as $chunk) {
-            DB::table('stock_prices')->insertOrIgnore($chunk);
+            DB::table('stock_prices')->upsert(
+                $chunk,
+                ['stock_id', 'trade_date'],
+                ['open', 'high', 'low', 'close', 'volume', 'updated_at']
+            );
         }
 
         $recent = array_slice($chart['bars'], -60);

@@ -39,7 +39,11 @@ final class FeatureEngineer
         'log_price',
         'down_days_ratio_10',
         'log_avg_volume_20',
-        'log_market_cap',
+        'log_avg_dollar_volume_20',
+        'dollar_volume_ratio_5_20',
+        'range_pct_1d',
+        'close_location_1d',
+        'open_to_close_1d',
         'beta_rut_20',
         // Macro environment
         'fed_funds_rate',
@@ -74,10 +78,14 @@ final class FeatureEngineer
 
         $close = [];
         $open = [];
+        $high = [];
+        $low = [];
         $volume = [];
         foreach ($prices as $bar) {
             $close[] = (float) $bar['close'];
             $open[] = (float) ($bar['open'] ?? $bar['close']);
+            $high[] = (float) ($bar['high'] ?? $bar['close']);
+            $low[] = (float) ($bar['low'] ?? $bar['close']);
             $volume[] = (float) $bar['volume'];
         }
 
@@ -106,6 +114,14 @@ final class FeatureEngineer
         $avgVol20 = self::mean(array_slice($volume, $t - 19, 20));
         $avgVol5 = self::mean(array_slice($volume, $t - 4, 5));
         $avgVolPrev20 = self::mean(array_slice($volume, $t - 24, 20));
+        $dollarVolumes = [];
+        for ($i = 0; $i <= $t; $i++) {
+            $dollarVolumes[] = $close[$i] * $volume[$i];
+        }
+        $avgDollarVolume20 = self::mean(array_slice($dollarVolumes, $t - 19, 20));
+        $avgDollarVolume5 = self::mean(array_slice($dollarVolumes, $t - 4, 5));
+        $avgDollarVolumePrev20 = self::mean(array_slice($dollarVolumes, $t - 24, 20));
+        $dailyRange = max(0.0, $high[$t] - $low[$t]);
 
         $downDays = 0;
         for ($i = $t - 9; $i <= $t; $i++) {
@@ -128,7 +144,6 @@ final class FeatureEngineer
         $insiderBuys = self::sumEventMeta($events, 'insider_buy', 'buy_value', 90, $asOf);
         $insiderSells = self::sumEventMeta($events, 'insider_sell', 'sell_value', 90, $asOf);
 
-        $marketCap = (float) ($meta['market_cap'] ?? 0.0);
         $previousClose = $t > 0 ? $close[$t - 1] : 0.0;
         $todayOpen = $open[$t] ?? 0.0;
         $gap = $previousClose > 0 && $todayOpen > 0
@@ -154,7 +169,11 @@ final class FeatureEngineer
             'log_price' => log($close[$t]),
             'down_days_ratio_10' => $downDays / 10,
             'log_avg_volume_20' => log(max(1.0, $avgVol20)),
-            'log_market_cap' => log(max(1.0, $marketCap)),
+            'log_avg_dollar_volume_20' => log(max(1.0, $avgDollarVolume20)),
+            'dollar_volume_ratio_5_20' => $avgDollarVolumePrev20 > 0 ? $avgDollarVolume5 / $avgDollarVolumePrev20 : 1.0,
+            'range_pct_1d' => $close[$t] > 0 ? $dailyRange / $close[$t] : 0.0,
+            'close_location_1d' => $dailyRange > 0 ? ($close[$t] - $low[$t]) / $dailyRange : 0.5,
+            'open_to_close_1d' => $open[$t] > 0 ? $close[$t] / $open[$t] - 1 : 0.0,
             'beta_rut_20' => self::beta(
                 array_slice($rets, $t - 19, 20),
                 array_slice($rutRets, $t - 19, 20)
